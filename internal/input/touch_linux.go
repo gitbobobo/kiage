@@ -30,6 +30,9 @@ const (
 	absMtPositionX  = 0x35
 	absMtPositionY  = 0x36
 	btnTouch    = 0x14a
+
+	tapMaxDuration = 500 * time.Millisecond
+	tapFlickerMin  = 20 * time.Millisecond
 )
 
 const inputEventSize = 16
@@ -215,38 +218,53 @@ func (l *TouchListener) Run(ctx context.Context, screen ScreenMapping, h Handler
 	bounds := l.bounds
 
 	var (
-		active    bool
-		start     time.Time
-		x, y      int
-		startX    int
-		startY    int
-		buf       = make([]byte, inputEventSize)
-		tapOnUp   func()
+		active      bool
+		fired       bool
+		seenX       bool
+		seenY       bool
+		start       time.Time
+		x, y        int
+		buf         = make([]byte, inputEventSize)
 	)
 
-	fireTap := func() {
-		if !active {
+	beginTouch := func() {
+		if active {
 			return
 		}
-		dx := x - startX
-		dy := y - startY
-		if dx < 0 {
-			dx = -dx
+		active = true
+		fired = false
+		start = time.Now()
+	}
+
+	fireTap := func() {
+		if !active || fired {
+			return
 		}
-		if dy < 0 {
-			dy = -dy
-		}
-		if time.Since(start) >= 500*time.Millisecond || dx >= 50 || dy >= 50 {
+		fired = true
+		defer func() {
 			active = false
+			seenX = false
+			seenY = false
+		}()
+
+		elapsed := time.Since(start)
+		if elapsed < tapFlickerMin {
+			log.Info("touch tap ignored flicker ms=%d", elapsed.Milliseconds())
+			return
+		}
+		if elapsed >= tapMaxDuration {
+			log.Info("touch tap ignored long ms=%d", elapsed.Milliseconds())
+			return
+		}
+		if !seenX || !seenY {
+			log.Info("touch tap ignored incomplete coords seenX=%v seenY=%v", seenX, seenY)
 			return
 		}
 		px, py := MapTouch(x, y, bounds, screen)
 		log.Info("touch raw=(%d,%d) mapped=(%d,%d) quirk swap=%v mx=%v my=%v",
 			x, y, px, py, screen.Quirk.SwapAxes, screen.Quirk.MirrorX, screen.Quirk.MirrorY)
 		h.OnTap(px, py)
-		active = false
 	}
-	tapOnUp = fireTap
 
 	for {
 		select {
@@ -272,23 +290,19 @@ func (l *TouchListener) Run(ctx context.Context, screen ScreenMapping, h Handler
 			switch code {
 			case absX, absMtPositionX:
 				x = int(val)
+				seenX = true
 			case absY, absMtPositionY:
 				y = int(val)
+				seenY = true
 			case absMtTrackingID:
 				if val >= 0 {
-					active = true
-					start = time.Now()
-					startX, startY = x, y
+					beginTouch()
 				} else if active {
-					tapOnUp()
+					fireTap()
 				}
 			case absPressure:
-				if val > 0 && !active {
-					active = true
-					start = time.Now()
-					startX, startY = x, y
-				} else if val == 0 && active {
-					tapOnUp()
+				if val > 0 {
+					beginTouch()
 				}
 			}
 		case evKey:
@@ -296,16 +310,9 @@ func (l *TouchListener) Run(ctx context.Context, screen ScreenMapping, h Handler
 				continue
 			}
 			if val == 1 {
-				active = true
-				start = time.Now()
-				startX, startY = x, y
+				beginTouch()
 			} else if val == 0 && active {
-				tapOnUp()
-			}
-		case evSyn:
-			if code == synReport && active && time.Since(start) > 50*time.Millisecond {
-				// 部分设备仅在 SYN_REPORT 时坐标才稳定
-				_ = code
+				fireTap()
 			}
 		}
 	}

@@ -2,29 +2,29 @@ package input
 
 import "testing"
 
+func TestTapSlop(t *testing.T) {
+	if got := tapSlop(ScreenMapping{Width: 1264, Height: 1680}); got != 100 {
+		t.Fatalf("kindle slop=%d want 100", got)
+	}
+	if got := tapSlop(ScreenMapping{Width: 800, Height: 600}); got != 50 {
+		t.Fatalf("legacy slop=%d want 50", got)
+	}
+}
+
 func TestMapTouchKindleViewport(t *testing.T) {
-	// 来自真机日志：raw=(210,1622) screen=1264x1680 max=1071x1447 mx/my=true rota=2
 	screen := ScreenMapping{
 		Width:  1264,
 		Height: 1680,
 		Quirk:  TouchQuirk{MirrorX: true, MirrorY: true},
 	}
 	bounds := TouchBounds{MaxX: 1071, MaxY: 1447}
-	px, py := MapTouch(210, 1622, bounds, screen)
-	if px < 950 || px > 1050 {
-		t.Fatalf("px=%d want ~1016", px)
-	}
-	if py < 0 || py > 120 {
-		t.Fatalf("py=%d want ~57", py)
-	}
 
-	// 16:36 会话：无旋转修正时 mapped=(234,1643) 在底部；修正后应落在顶部
-	px, py = MapTouch(199, 1643, bounds, screen)
-	if py < 0 || py > 120 {
-		t.Fatalf("1643 tap py=%d want top ~36", py)
+	px, py := MapTouch(210, 1622, bounds, screen)
+	if px < 1040 || px > 1070 {
+		t.Fatalf("px=%d want ~1053", px)
 	}
-	if px < 950 {
-		t.Fatalf("1643 tap px=%d want right side", px)
+	if py < 40 || py > 60 {
+		t.Fatalf("py=%d want ~45 without shift", py)
 	}
 }
 

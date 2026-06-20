@@ -3,10 +3,13 @@ package app
 import (
 	"context"
 	"os/exec"
+	"time"
 
 	"github.com/godbobo/kiage/internal/log"
 	"github.com/godbobo/kiage/internal/render"
 )
+
+const kindleTouchDebounce = 300 * time.Millisecond
 
 type kindleTouchHandler struct {
 	app *App
@@ -17,29 +20,32 @@ func (h *kindleTouchHandler) OnTap(x, y int) {
 }
 
 func (a *App) handleTopTap(x, y int) {
-	a.mu.RLock()
+	a.mu.Lock()
+	if time.Since(a.lastTouchTap) < kindleTouchDebounce {
+		a.mu.Unlock()
+		log.Info("touch tap (%d,%d) ignored debounce", x, y)
+		return
+	}
+	a.lastTouchTap = time.Now()
 	name := a.prov.DisplayName()
-	a.mu.RUnlock()
+	a.mu.Unlock()
 
 	size := a.frameSize()
-	regions := render.TopControlsHitRegions(size, name)
+	regions := render.TopControlsHitRegions(size, name, a.View().ChartMetric)
 
 	action := ""
-	switch {
-	case regions.ProviderTitle.Contains(x, y):
+	if regions.ProviderTitle.ContainsPadAsymmetric(x, y, 12, 12, 12, 48) {
 		action = "sync"
-	case regions.Exit.Contains(x, y):
-		action = "exit"
-	case regions.Settings.Contains(x, y):
-		action = "settings"
-	case regions.MetricToggle.Contains(x, y):
-		action = "metric_toggle"
-	default:
-		action = render.HitTopRightBar(size, x, y)
+	} else {
+		action = render.KindleTopBarAction(size, x, y, regions)
 	}
 
 	if action == "" {
-		log.Info("touch tap (%d,%d) no hit", x, y)
+		log.Info("touch tap (%d,%d) no hit bar_y<120 metric_x=%d-%d settings_x=%d-%d exit_x=%d-%d",
+			x, y,
+			regions.MetricToggle.X-16, regions.MetricToggle.X+regions.MetricToggle.W+16,
+			regions.Settings.X-16, regions.Settings.X+regions.Settings.W+16,
+			regions.Exit.X-16, regions.Exit.X+regions.Exit.W+16)
 		return
 	}
 
@@ -48,7 +54,7 @@ func (a *App) handleTopTap(x, y int) {
 	case "sync":
 		a.startSyncAsync(context.Background())
 	case "metric_toggle":
-		a.SetView(func(v *render.ViewState) {
+		a.SetViewUrgent(func(v *render.ViewState) {
 			if v.ChartMetric == "token" {
 				v.ChartMetric = "cost"
 			} else {
@@ -56,7 +62,11 @@ func (a *App) handleTopTap(x, y int) {
 			}
 		})
 	case "settings":
-		_ = a.ToggleSettingsServer()
+		go func() {
+			if err := a.ToggleSettingsServer(); err != nil {
+				log.Warn("toggle settings: %v", err)
+			}
+		}()
 	case "exit":
 		a.requestExit()
 	}
