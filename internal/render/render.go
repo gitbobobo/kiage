@@ -68,7 +68,8 @@ func RenderPNG(dash aggregate.Dashboard, line []aggregate.LinePoint, heat aggreg
 	drawHeatmap(img, PadX, heatY, w, heatH, heat)
 
 	var buf bytes.Buffer
-	if err := png.Encode(&buf, img); err != nil {
+	enc := png.Encoder{CompressionLevel: png.BestSpeed}
+	if err := enc.Encode(&buf, img); err != nil {
 		return nil, err
 	}
 	return buf.Bytes(), nil
