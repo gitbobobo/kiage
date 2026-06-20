@@ -60,7 +60,7 @@ func (c *Client) ID() string { return provider.CursorID }
 func (c *Client) DisplayName() string { return "Cursor" }
 
 func (c *Client) Capabilities() provider.Capabilities {
-	return provider.Capabilities{Summary: true, UsageEvents: true, BillingCycle: true}
+	return provider.Capabilities{Summary: true, UsageEvents: true, BillingCycle: true, SupportsCost: true}
 }
 
 func (c *Client) Timezone() *time.Location { return c.loc }
@@ -254,6 +254,7 @@ func parseSummary(raw map[string]any, rawJSON string) (provider.Summary, error) 
 			s.OnDemandUsedCents = asFloat(od["used"])
 		}
 	}
+	s.Bars = provider.CursorBarsFromPercents(s.TotalPercent, s.ComposerPercent, s.APIPercent)
 	return s, nil
 }
 

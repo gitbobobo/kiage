@@ -6,19 +6,30 @@ import (
 	"time"
 )
 
-const CursorID = "cursor"
+const (
+	CursorID         = "cursor"
+	GLMID            = "glm"
+	AppStateProvider = "_app"
+)
 
 var (
-	ErrInvalidCredential    = errors.New("invalid credential")
-	ErrRateLimited          = errors.New("rate limited")
-	ErrProviderUnavailable  = errors.New("provider unavailable")
-	ErrSchemaChanged        = errors.New("schema changed")
+	ErrInvalidCredential   = errors.New("invalid credential")
+	ErrRateLimited         = errors.New("rate limited")
+	ErrProviderUnavailable = errors.New("provider unavailable")
+	ErrSchemaChanged       = errors.New("schema changed")
 )
 
 type Capabilities struct {
-	Summary       bool
-	UsageEvents   bool
-	BillingCycle  bool
+	Summary      bool
+	UsageEvents  bool
+	BillingCycle bool
+	SupportsCost bool
+}
+
+type QuotaBar struct {
+	Label   string    `json:"label"`
+	Percent float64   `json:"percent"`
+	ResetAt time.Time `json:"reset_at,omitempty"`
 }
 
 type Summary struct {
@@ -30,9 +41,25 @@ type Summary struct {
 	TotalPercent      float64
 	ComposerPercent   float64
 	APIPercent        float64
+	Bars              []QuotaBar
 	OnDemandEnabled   bool
 	OnDemandUsedCents float64
 	RawJSON           string
+}
+
+func CursorBarsFromPercents(total, composer, api float64) []QuotaBar {
+	return []QuotaBar{
+		{Label: "Total", Percent: total},
+		{Label: "Composer", Percent: composer},
+		{Label: "API", Percent: api},
+	}
+}
+
+func LegacyBarsFromSummary(s Summary) []QuotaBar {
+	if len(s.Bars) > 0 {
+		return s.Bars
+	}
+	return CursorBarsFromPercents(s.TotalPercent, s.ComposerPercent, s.APIPercent)
 }
 
 type UsageEvent struct {

@@ -1,0 +1,31 @@
+{
+  "code": 200,
+  "msg": "操作成功",
+  "data": {
+    "limits": [
+      {
+        "type": "TIME_LIMIT",
+        "unit": 5,
+        "number": 1,
+        "usage": 1000,
+        "currentValue": 79,
+        "remaining": 921,
+        "percentage": 7,
+        "nextResetTime": 1781966717997,
+        "usageDetails": [
+          {"modelCode": "search-prime", "usage": 43},
+          {"modelCode": "web-reader", "usage": 23}
+        ]
+      },
+      {
+        "type": "TOKENS_LIMIT",
+        "unit": 3,
+        "number": 5,
+        "percentage": 18,
+        "nextResetTime": 1781952000000
+      }
+    ],
+    "level": "pro"
+  },
+  "success": true
+}
