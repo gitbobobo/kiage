@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>kiage preview</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #222;
+      color: #eee;
+      font-family: system-ui, sans-serif;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 10px 16px;
+      flex-shrink: 0;
+      border-bottom: 1px solid #333;
+      background: #1a1a1a;
+    }
+    .header-left h1 {
+      font-size: 16px;
+      font-weight: 500;
+      margin: 0;
+      white-space: nowrap;
+    }
+    .header-right {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 12px;
+      flex-wrap: wrap;
+      min-width: 0;
+    }
+    .service-url {
+      font-size: 12px;
+      color: #8ab4f8;
+      max-width: min(420px, 40vw);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .service-url:empty { display: none; }
+    .service-url a { color: inherit; text-decoration: none; }
+    .service-url a:hover { text-decoration: underline; }
+    .toolbar {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    button {
+      background: #333;
+      color: #eee;
+      border: 1px solid #555;
+      padding: 8px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    button:hover { background: #444; }
+    button.active { background: #555; border-color: #888; }
+    .main {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 12px;
+    }
+    .frame-wrap {
+      border: 2px solid #444;
+      background: #fff;
+      box-shadow: 0 8px 32px rgba(0,0,0,.4);
+      cursor: crosshair;
+      max-width: 100%;
+      max-height: 100%;
+      height: auto;
+    }
+    .frame-wrap.landscape {
+      aspect-ratio: 1448 / 1072;
+      width: min(100%, calc((100vh - 56px) * 1448 / 1072));
+    }
+    .frame-wrap.portrait {
+      aspect-ratio: 1072 / 1448;
+      width: min(100%, calc((100vh - 56px) * 1072 / 1448));
+    }
+    img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: block;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <header class="header">
+    <div class="header-left">
+      <h1>kiage · Oasis 预览</h1>
+    </div>
+    <div class="header-right">
+      <span class="service-url" id="serviceUrl"></span>
+      <div class="toolbar">
+        <button id="settingsBtn" onclick="toggleSettings()">设置</button>
+        <button onclick="act('toggle_metric')">Token/花费</button>
+        <button onclick="act('refresh')">手动刷新</button>
+        <button onclick="toggleOrient()">横/竖屏</button>
+      </div>
+    </div>
+  </header>
+  <main class="main">
+    <div class="frame-wrap landscape" id="wrap">
+      <img id="frame" src="/frame" alt="dashboard" />
+    </div>
+  </main>
+  <script>
+    const frame = document.getElementById('frame');
+    const wrap = document.getElementById('wrap');
+    const settingsBtn = document.getElementById('settingsBtn');
+    const serviceUrlEl = document.getElementById('serviceUrl');
+    let layout = null;
+
+    function setServiceUrl(text, href) {
+      serviceUrlEl.textContent = '';
+      serviceUrlEl.replaceChildren();
+      if (!text) return;
+      if (href) {
+        const a = document.createElement('a');
+        a.href = href;
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        a.textContent = text;
+        serviceUrlEl.appendChild(a);
+      } else {
+        serviceUrlEl.textContent = text;
+      }
+    }
+
+    function inRect(x, y, r) {
+      return x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h;
+    }
+
+    function canvasPoint(e) {
+      const rect = frame.getBoundingClientRect();
+      const w = layout?.width || 1448;
+      const h = layout?.height || 1072;
+      return {
+        x: (e.clientX - rect.left) / rect.width * w,
+        y: (e.clientY - rect.top) / rect.height * h,
+      };
+    }
+
+    async function loadLayout() {
+      const r = await fetch('/api/layout');
+      layout = await r.json();
+      syncSettingsUI();
+    }
+
+    function syncSettingsUI() {
+      if (!layout) return;
+      const active = !!layout.settings_active;
+      settingsBtn.classList.toggle('active', active);
+      settingsBtn.textContent = active ? '设置（已开启）' : '设置';
+      if (active && layout.settings_url) {
+        setServiceUrl(layout.settings_url, layout.settings_url);
+      } else {
+        setServiceUrl('');
+      }
+    }
+
+    function refresh() { frame.src = '/frame?t=' + Date.now(); }
+
+    async function refreshDashboard() {
+      const r = await fetch('/api/action?name=refresh', { method: 'POST' });
+      const d = await r.json();
+      if (d.skipped) {
+        setServiceUrl('正在刷新，请稍候…');
+      } else if (d.started) {
+        setServiceUrl('刷新中…');
+        refresh();
+        await loadLayout();
+      }
+    }
+
+    async function act(name) {
+      if (name === 'refresh') {
+        await refreshDashboard();
+        return;
+      }
+      const r = await fetch('/api/action?name=' + name, { method: 'POST' });
+      if (name === 'toggle_settings') {
+        const d = await r.json();
+        if (layout) {
+          layout.settings_active = !!d.settings_active;
+          layout.settings_url = d.settings_url || '';
+        }
+        syncSettingsUI();
+        if (d.error) setServiceUrl('设置服务：' + d.error);
+        else if (!d.settings_active) setServiceUrl('');
+      }
+      refresh();
+      if (name !== 'toggle_settings') await loadLayout();
+    }
+
+    async function toggleSettings() { await act('toggle_settings'); }
+
+    function toggleOrient() {
+      const portrait = wrap.classList.contains('portrait');
+      wrap.className = 'frame-wrap ' + (portrait ? 'landscape' : 'portrait');
+      fetch('/api/action?name=orientation', { method: 'POST' }).then(async () => {
+        await loadLayout();
+        refresh();
+      });
+    }
+
+    wrap.addEventListener('click', (e) => {
+      if (!layout?.regions) return;
+      const p = canvasPoint(e);
+      if (inRect(p.x, p.y, layout.regions.provider_title)) {
+        refreshDashboard();
+      } else if (inRect(p.x, p.y, layout.regions.settings)) {
+        toggleSettings();
+      } else if (inRect(p.x, p.y, layout.regions.exit)) {
+        act('exit');
+      } else if (inRect(p.x, p.y, layout.regions.metric_toggle)) {
+        act('toggle_metric');
+      }
+    });
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 't' || e.key === 'T') act('toggle_metric');
+      if (e.key === 'g' || e.key === 'G') toggleSettings();
+      if (e.key === 'r' || e.key === 'R') act('refresh');
+    });
+
+    loadLayout().then(refresh);
+    setInterval(async () => { await loadLayout(); refresh(); }, 5000);
+  </script>
+</body>
+</html>

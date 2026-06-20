@@ -1,0 +1,12 @@
+node_modules/
+bin/kiage
+extension/bin/kiage
+extension/bin/fbink
+extension/cache/
+extension/etc/config.json
+extension/etc/import/
+extension/fonts/*.otf
+extension/fonts/*.ttf
+*.db
+*.db-*
+.DS_Store

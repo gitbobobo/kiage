@@ -1,0 +1,312 @@
+//go:build linux
+
+package input
+
+import (
+	"context"
+	"encoding/binary"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
+	"unsafe"
+
+	"github.com/godbobo/kiage/internal/log"
+	"golang.org/x/sys/unix"
+)
+
+const (
+	evSyn       = 0x00
+	evKey       = 0x01
+	evAbs       = 0x03
+	synReport   = 0x00
+	absX        = 0x00
+	absY        = 0x01
+	absPressure = 0x18
+	absMtTrackingID = 0x39
+	absMtPositionX  = 0x35
+	absMtPositionY  = 0x36
+	btnTouch    = 0x14a
+)
+
+const inputEventSize = 16
+
+type TouchListener struct {
+	dev    string
+	f      *os.File
+	bounds TouchBounds
+}
+
+func OpenTouchListener() (*TouchListener, error) {
+	dev := touchDevicePath()
+	if dev == "" {
+		return nil, fmt.Errorf("touch device not found")
+	}
+	f, err := os.Open(dev)
+	if err != nil {
+		return nil, fmt.Errorf("open %s: %w", dev, err)
+	}
+	if err := grabTouchDevice(f); err != nil {
+		log.Warn("touch grab failed (continuing): %v", err)
+	}
+	bounds := readTouchBounds(f, dev)
+	log.Info("touch device %s maxX=%d maxY=%d", dev, bounds.MaxX, bounds.MaxY)
+	return &TouchListener{dev: dev, f: f, bounds: bounds}, nil
+}
+
+type inputAbsinfo struct {
+	Value      int32
+	Minimum    int32
+	Maximum    int32
+	Fuzz       int32
+	Flat       int32
+	Resolution int32
+}
+
+func readTouchBounds(f *os.File, dev string) TouchBounds {
+	maxX := absMaximum(f, absX)
+	if maxX <= 0 {
+		maxX = absMaximum(f, absMtPositionX)
+	}
+	maxY := absMaximum(f, absY)
+	if maxY <= 0 {
+		maxY = absMaximum(f, absMtPositionY)
+	}
+	if maxX <= 0 || maxY <= 0 {
+		sx, sy := absMaxFromSysfs(dev)
+		if maxX <= 0 {
+			maxX = sx
+		}
+		if maxY <= 0 {
+			maxY = sy
+		}
+	}
+	if maxX <= 0 {
+		maxX = 1071
+	}
+	if maxY <= 0 {
+		maxY = 1447
+	}
+	return TouchBounds{MaxX: maxX, MaxY: maxY}
+}
+
+func absMaximum(f *os.File, code int) int {
+	var info inputAbsinfo
+	_, _, errno := unix.Syscall(
+		unix.SYS_IOCTL,
+		f.Fd(),
+		eviocgabs(code),
+		uintptr(unsafe.Pointer(&info)),
+	)
+	if errno != 0 {
+		return 0
+	}
+	return int(info.Maximum)
+}
+
+func absMaxFromSysfs(dev string) (maxX, maxY int) {
+	event := filepath.Base(dev)
+	base := filepath.Join("/sys/class/input", event, "device", "abs")
+	pairs := [][2]string{
+		{"abs_x", "abs_y"},
+		{"ABS_X", "ABS_Y"},
+		{"abs_0", "abs_1"},
+		{"ABS_MT_POSITION_X", "ABS_MT_POSITION_Y"},
+	}
+	for _, p := range pairs {
+		if maxX <= 0 {
+			maxX = readSysfsInt(filepath.Join(base, p[0], "max"))
+		}
+		if maxY <= 0 {
+			maxY = readSysfsInt(filepath.Join(base, p[1], "max"))
+		}
+		if maxX > 0 && maxY > 0 {
+			break
+		}
+	}
+	return maxX, maxY
+}
+
+func readSysfsInt(path string) int {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0
+	}
+	v, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		return 0
+	}
+	return v
+}
+
+func grabTouchDevice(f *os.File) error {
+	one := int32(1)
+	_, _, errno := unix.Syscall(
+		unix.SYS_IOCTL,
+		f.Fd(),
+		eviocgrab(),
+		uintptr(unsafe.Pointer(&one)),
+	)
+	if errno != 0 {
+		return errno
+	}
+	return nil
+}
+
+func touchDevicePath() string {
+	if p := os.Getenv("KIAGE_TOUCH_DEV"); p != "" {
+		return p
+	}
+	candidates := []string{
+		"/dev/input/by-path/platform-imx-i2c.1-event",
+		"/dev/input/by-path/platform-30a30000.i2c-event",
+		"/dev/input/by-path/platform-ts-event",
+		"/dev/input/touchscreen",
+		"/dev/input/touchscreen0",
+	}
+	for _, c := range candidates {
+		if st, err := os.Stat(c); err == nil && st.Mode()&os.ModeCharDevice != 0 {
+			return c
+		}
+	}
+	entries, err := os.ReadDir("/dev/input")
+	if err != nil {
+		return ""
+	}
+	for _, e := range entries {
+		if !strings.HasPrefix(e.Name(), "event") {
+			continue
+		}
+		path := filepath.Join("/dev/input", e.Name())
+		if isTouchscreen(path) {
+			return path
+		}
+	}
+	return ""
+}
+
+func isTouchscreen(path string) bool {
+	namePath := filepath.Join("/sys/class/input", filepath.Base(path), "device", "name")
+	data, err := os.ReadFile(namePath)
+	if err != nil {
+		return false
+	}
+	name := strings.ToLower(string(data))
+	return strings.Contains(name, "touch") ||
+		strings.Contains(name, "ts") ||
+		strings.Contains(name, "cytma") ||
+		strings.Contains(name, "goodix")
+}
+
+func (l *TouchListener) Close() error {
+	if l.f == nil {
+		return nil
+	}
+	return l.f.Close()
+}
+
+func (l *TouchListener) Run(ctx context.Context, screen ScreenMapping, h Handler) {
+	if l == nil || l.f == nil || h == nil {
+		return
+	}
+	bounds := l.bounds
+
+	var (
+		active    bool
+		start     time.Time
+		x, y      int
+		startX    int
+		startY    int
+		buf       = make([]byte, inputEventSize)
+		tapOnUp   func()
+	)
+
+	fireTap := func() {
+		if !active {
+			return
+		}
+		dx := x - startX
+		dy := y - startY
+		if dx < 0 {
+			dx = -dx
+		}
+		if dy < 0 {
+			dy = -dy
+		}
+		if time.Since(start) >= 500*time.Millisecond || dx >= 50 || dy >= 50 {
+			active = false
+			return
+		}
+		px, py := MapTouch(x, y, bounds, screen)
+		log.Info("touch raw=(%d,%d) mapped=(%d,%d) quirk swap=%v mx=%v my=%v",
+			x, y, px, py, screen.Quirk.SwapAxes, screen.Quirk.MirrorX, screen.Quirk.MirrorY)
+		h.OnTap(px, py)
+		active = false
+	}
+	tapOnUp = fireTap
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		if _, err := io.ReadFull(l.f, buf); err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			time.Sleep(200 * time.Millisecond)
+			continue
+		}
+
+		typ := binary.LittleEndian.Uint16(buf[8:10])
+		code := binary.LittleEndian.Uint16(buf[10:12])
+		val := int32(binary.LittleEndian.Uint32(buf[12:16]))
+
+		switch typ {
+		case evAbs:
+			switch code {
+			case absX, absMtPositionX:
+				x = int(val)
+			case absY, absMtPositionY:
+				y = int(val)
+			case absMtTrackingID:
+				if val >= 0 {
+					active = true
+					start = time.Now()
+					startX, startY = x, y
+				} else if active {
+					tapOnUp()
+				}
+			case absPressure:
+				if val > 0 && !active {
+					active = true
+					start = time.Now()
+					startX, startY = x, y
+				} else if val == 0 && active {
+					tapOnUp()
+				}
+			}
+		case evKey:
+			if code != btnTouch {
+				continue
+			}
+			if val == 1 {
+				active = true
+				start = time.Now()
+				startX, startY = x, y
+			} else if val == 0 && active {
+				tapOnUp()
+			}
+		case evSyn:
+			if code == synReport && active && time.Since(start) > 50*time.Millisecond {
+				// 部分设备仅在 SYN_REPORT 时坐标才稳定
+				_ = code
+			}
+		}
+	}
+}

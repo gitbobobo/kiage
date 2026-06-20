@@ -1,0 +1,47 @@
+{
+  "totalUsageEventsCount": 3,
+  "usageEventsDisplay": [
+    {
+      "timestamp": "1718784000000",
+      "model": "composer-2.5",
+      "kind": "USAGE_EVENT_KIND_INCLUDED_IN_BUSINESS",
+      "isTokenBasedCall": true,
+      "tokenUsage": {
+        "inputTokens": 1000,
+        "outputTokens": 5000,
+        "cacheWriteTokens": 0,
+        "totalCents": 0
+      },
+      "owningUser": "152683922",
+      "chargedCents": 0
+    },
+    {
+      "timestamp": "1718787600000",
+      "model": "gpt-5.5-medium",
+      "kind": "USAGE_EVENT_KIND_USAGE_BASED",
+      "isTokenBasedCall": true,
+      "tokenUsage": {
+        "inputTokens": 2000,
+        "outputTokens": 8000,
+        "cacheWriteTokens": 1000,
+        "totalCents": 45.5
+      },
+      "owningUser": "152683922",
+      "chargedCents": 48.2
+    },
+    {
+      "timestamp": "1718870400000",
+      "model": "composer-2.5-fast",
+      "kind": "USAGE_EVENT_KIND_INCLUDED_IN_BUSINESS",
+      "isTokenBasedCall": true,
+      "tokenUsage": {
+        "inputTokens": 500,
+        "outputTokens": 3000,
+        "cacheWriteTokens": 0,
+        "totalCents": 0
+      },
+      "owningUser": "152683922",
+      "chargedCents": 0
+    }
+  ]
+}
