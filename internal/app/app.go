@@ -23,6 +23,13 @@ import (
 	syncer "github.com/godbobo/kiage/internal/sync"
 )
 
+type frameSnapshot struct {
+	dash  aggregate.Dashboard
+	line  []aggregate.LinePoint
+	heat  aggregate.HeatmapStats
+	valid bool
+}
+
 type App struct {
 	roots       paths.Roots
 	cfg         config.Config
@@ -35,12 +42,20 @@ type App struct {
 	settingsSrv *http.Server
 	view        render.ViewState
 	screenSize  render.Size
+	frameSnap   frameSnapshot
 	lastPNG     []byte
 	lastErr     error
 	syncing     bool
 	progress    string
-	exitCh      chan struct{}
-	displayCh   chan struct{}
+	exitCh        chan struct{}
+	displayCh     chan displayNotify
+	renderMu      sync.Mutex
+	lastTouchTap  time.Time
+	lastMetricTap time.Time
+}
+
+type displayNotify struct {
+	urgent bool
 }
 
 func New(roots paths.Roots) (*App, error) {
@@ -86,7 +101,7 @@ func New(roots paths.Roots) (*App, error) {
 		sync:   syncer.New(prov, st),
 		agg:    aggregate.New(st, loc),
 		exitCh:    make(chan struct{}, 1),
-		displayCh: make(chan struct{}, 1),
+		displayCh: make(chan displayNotify, 64),
 		view: render.ViewState{
 			ChartMetric: "token",
 			Orientation: detectOrientation(),
@@ -138,6 +153,82 @@ func (a *App) SetView(fn func(*render.ViewState)) {
 	a.RefreshFrame()
 }
 
+func (a *App) SetViewUrgent(fn func(*render.ViewState)) {
+	a.mu.Lock()
+	fn(&a.view)
+	a.mu.Unlock()
+	go a.refreshFrameViewOnly(true)
+}
+
+func (a *App) RefreshFrame() {
+	a.refreshFrame(false)
+}
+
+func (a *App) refreshFrameViewOnly(urgent bool) {
+	a.refreshFrameOpts(urgent, true)
+}
+
+func (a *App) refreshFrame(urgent bool) {
+	a.refreshFrameOpts(urgent, false)
+}
+
+func (a *App) refreshFrameOpts(urgent, viewOnly bool) {
+	if urgent {
+		a.renderMu.Lock()
+	} else if !a.renderMu.TryLock() {
+		log.Info("render frame skipped busy urgent=false")
+		return
+	}
+	defer a.renderMu.Unlock()
+
+	start := time.Now()
+	ctx := context.Background()
+
+	var (
+		dash  aggregate.Dashboard
+		line  []aggregate.LinePoint
+		heat  aggregate.HeatmapStats
+		aggMs int64
+	)
+
+	a.mu.RLock()
+	snap := a.frameSnap
+	view := a.view
+	a.mu.RUnlock()
+
+	if viewOnly && snap.valid {
+		dash, line, heat = snap.dash, snap.line, snap.heat
+	} else {
+		aggStart := time.Now()
+		dash, _ = a.agg.Build(ctx, provider.CursorID)
+		line, _ = a.agg.LineSeries(ctx, provider.CursorID, 30)
+		size := a.frameSize()
+		heatWeeks := render.HeatmapWeeksForWidth(size.Width - render.PadX*2)
+		heat, _ = a.agg.Heatmap(ctx, provider.CursorID, heatWeeks)
+		aggMs = time.Since(aggStart).Milliseconds()
+
+		a.mu.Lock()
+		a.frameSnap = frameSnapshot{dash: dash, line: line, heat: heat, valid: true}
+		a.mu.Unlock()
+	}
+
+	dash.SyncStatus = view.SyncStatus
+	dash.SyncMessage = a.progress
+
+	size := a.frameSize()
+	view.ProviderName = a.prov.DisplayName()
+	pngStart := time.Now()
+	png, err := render.RenderPNG(dash, line, heat, view, size)
+	pngMs := time.Since(pngStart).Milliseconds()
+	a.mu.Lock()
+	a.lastPNG = png
+	a.lastErr = err
+	a.mu.Unlock()
+	log.Info("render frame ok urgent=%v viewOnly=%v agg_ms=%d png_ms=%d total_ms=%d err=%v",
+		urgent, viewOnly, aggMs, pngMs, time.Since(start).Milliseconds(), err)
+	a.notifyDisplay(urgent)
+}
+
 func (a *App) PNG() []byte {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -150,33 +241,25 @@ func (a *App) LastError() error {
 	return a.lastErr
 }
 
-func (a *App) RefreshFrame() {
-	ctx := context.Background()
-	dash, _ := a.agg.Build(ctx, provider.CursorID)
-	a.mu.RLock()
-	view := a.view
-	a.mu.RUnlock()
-
-	dash.SyncStatus = view.SyncStatus
-	dash.SyncMessage = a.progress
-
-	line, _ := a.agg.LineSeries(ctx, provider.CursorID, 30)
-	size := a.frameSize()
-	heatWeeks := render.HeatmapWeeksForWidth(size.Width - render.PadX*2)
-	heat, _ := a.agg.Heatmap(ctx, provider.CursorID, heatWeeks)
-	view.ProviderName = a.prov.DisplayName()
-	png, err := render.RenderPNG(dash, line, heat, view, size)
-	a.mu.Lock()
-	a.lastPNG = png
-	a.lastErr = err
-	a.mu.Unlock()
-	a.notifyDisplay()
-}
-
-func (a *App) notifyDisplay() {
-	select {
-	case a.displayCh <- struct{}{}:
-	default:
+func (a *App) notifyDisplay(urgent bool) {
+	n := displayNotify{urgent: urgent}
+	// 非阻塞写入；channel 满时合并 urgent 标志，避免刷屏阻塞时丢交互刷新
+	for i := 0; i < 8; i++ {
+		select {
+		case a.displayCh <- n:
+			return
+		default:
+		}
+		select {
+		case old := <-a.displayCh:
+			if urgent {
+				old.urgent = true
+			}
+			n = old
+		default:
+			log.Warn("notify display queue full urgent=%v", urgent)
+			return
+		}
 	}
 }
 
@@ -216,20 +299,30 @@ func (a *App) tryBeginSync() bool {
 	a.syncing = true
 	a.view.SyncStatus = "同步中"
 	a.mu.Unlock()
-	a.RefreshFrame()
+	if !render.KindleUI() {
+		a.RefreshFrame()
+	}
 	return true
 }
 
 func (a *App) finishSync() {
 	a.mu.Lock()
 	a.syncing = false
+	a.frameSnap.valid = false
 	if a.lastErr == nil {
 		a.view.SyncStatus = "就绪"
 	} else {
 		a.view.SyncStatus = "错误"
 	}
 	a.mu.Unlock()
-	a.RefreshFrame()
+	if render.KindleUI() {
+		go func() {
+			time.Sleep(350 * time.Millisecond)
+			a.refreshFrame(false)
+		}()
+	} else {
+		a.RefreshFrame()
+	}
 }
 
 func (a *App) IsSyncing() bool {
@@ -267,7 +360,7 @@ func (a *App) RunDev(ctx context.Context, addr string) error {
 		metric := a.view.ChartMetric
 		a.mu.RUnlock()
 		size := a.frameSize()
-		regions := render.TopControlsHitRegions(size, a.prov.DisplayName())
+		regions := render.TopControlsHitRegions(size, a.prov.DisplayName(), metric)
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"width":           size.Width,
 			"height":          size.Height,

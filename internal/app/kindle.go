@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/godbobo/kiage/internal/display"
 	"github.com/godbobo/kiage/internal/input"
@@ -17,7 +18,9 @@ func (a *App) RunKindle(ctx context.Context) error {
 	defer releaseScreenAwake()
 
 	fbBin := os.Getenv("KIAGE_FBINK")
-	display.LogFBInkProbe()
+	if fbBin == "" {
+		display.LogFBInkProbe()
+	}
 	a.mu.RLock()
 	orient := a.view.Orientation
 	a.mu.RUnlock()
@@ -63,14 +66,13 @@ func (a *App) RunKindle(ctx context.Context) error {
 	}
 
 	var (
-		lastHash      [32]byte
-		firstDone     bool
-		partialCount  int
-		fbWarned      bool
-		flushCount    int
+		lastHash     [32]byte
+		firstDone    bool
+		partialCount int
+		flushCount   int
 	)
 
-	pushDisplay := func() {
+	pushDisplay := func(urgent bool) {
 		if err := a.LastError(); err != nil {
 			log.Error("render frame: %v", err)
 			return
@@ -81,7 +83,7 @@ func (a *App) RunKindle(ctx context.Context) error {
 			return
 		}
 		hash := sha256.Sum256(png)
-		if firstDone && hash == lastHash {
+		if firstDone && hash == lastHash && !urgent {
 			return
 		}
 		lastHash = hash
@@ -91,26 +93,68 @@ func (a *App) RunKindle(ctx context.Context) error {
 			log.Error("write frame.png: %v", err)
 			return
 		}
-		mode, nextPartial := display.PickRefreshMode(firstDone, partialCount, fullEvery)
+
+		var mode display.RefreshMode
+		nextPartial := partialCount
+		switch {
+		case !firstDone:
+			mode = display.RefreshFirst
+		case urgent:
+			// 交互用 GL16 局部刷（真机 DU 不稳定）
+			mode = display.RefreshPartial
+		default:
+			mode, nextPartial = display.PickRefreshMode(firstDone, partialCount, fullEvery)
+		}
+
+		fbStart := time.Now()
 		if err := fb.ShowPNG(path, mode); err != nil {
-			if !fbWarned {
-				fbWarned = true
-				log.Error("fbink show failed (mode=%d): %v", mode, err)
+			log.Error("fbink show failed mode=%d urgent=%v: %v", mode, urgent, err)
+			if urgent && mode == display.RefreshPartial {
+				log.Info("fbink retry urgent as full GC16")
+				if err2 := fb.ShowPNG(path, display.RefreshFull); err2 != nil {
+					log.Error("fbink retry failed: %v", err2)
+					return
+				}
+			} else {
+				return
 			}
-			return
 		}
 		firstDone = true
-		partialCount = nextPartial
-		flushCount++
-		if flushCount == 1 || flushCount%10 == 0 {
-			log.Info("fbink show ok mode=%d bytes=%d count=%d partial=%d", mode, len(png), flushCount, partialCount)
+		if !urgent {
+			partialCount = nextPartial
 		}
+		flushCount++
+		log.Info("fbink show ok mode=%d bytes=%d count=%d partial=%d urgent=%v fb_ms=%d",
+			mode, len(png), flushCount, partialCount, urgent, time.Since(fbStart).Milliseconds())
 	}
 
-	_ = a.DoSync(ctx)
-	a.RefreshFrame()
-	pushDisplay()
+	// 刷屏专用协程：pushDisplay 可能阻塞数秒，不可占主循环
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case n := <-a.displayCh:
+				urgent := n.urgent
+			drain:
+				for {
+					select {
+					case n2 := <-a.displayCh:
+						if n2.urgent {
+							urgent = true
+						}
+					default:
+						break drain
+					}
+				}
+				pushDisplay(urgent)
+			}
+		}
+	}()
 
+	paintStart := time.Now()
+	a.RefreshFrame()
+	log.Info("kindle first paint render ms=%d", time.Since(paintStart).Milliseconds())
 	go a.backgroundSync(ctx)
 
 	for {
@@ -121,16 +165,6 @@ func (a *App) RunKindle(ctx context.Context) error {
 		case <-a.exitCh:
 			log.Info("kindle loop exit: user exit")
 			return nil
-		case <-a.displayCh:
-			for {
-				select {
-				case <-a.displayCh:
-				default:
-					goto flush
-				}
-			}
-		flush:
-			pushDisplay()
 		}
 	}
 }

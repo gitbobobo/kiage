@@ -13,6 +13,7 @@ import (
 
 	"github.com/godbobo/kiage/internal/config"
 	"github.com/godbobo/kiage/internal/provider/cursor"
+	"github.com/godbobo/kiage/internal/render"
 	syncer "github.com/godbobo/kiage/internal/sync"
 )
 
@@ -60,7 +61,7 @@ func (a *App) ToggleSettingsServer() error {
 
 	if a.settingsSrv != nil {
 		err := a.stopSettingsServerLocked()
-		a.RefreshFrame()
+		a.refreshAfterSettingsChange()
 		return err
 	}
 
@@ -103,19 +104,27 @@ func (a *App) ToggleSettingsServer() error {
 				a.stopSettingsServerLocked()
 			}
 			a.settingsMu.Unlock()
-			a.RefreshFrame()
+			a.refreshAfterSettingsChange()
 		}
 	}()
 
-	a.RefreshFrame()
+	a.refreshAfterSettingsChange()
 	return nil
+}
+
+func (a *App) refreshAfterSettingsChange() {
+	if render.KindleUI() {
+		go a.refreshFrame(true)
+		return
+	}
+	a.RefreshFrame()
 }
 
 func (a *App) stopSettingsServer() {
 	a.settingsMu.Lock()
 	defer a.settingsMu.Unlock()
 	_ = a.stopSettingsServerLocked()
-	a.RefreshFrame()
+	a.refreshAfterSettingsChange()
 }
 
 func (a *App) stopSettingsServerLocked() error {

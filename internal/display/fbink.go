@@ -16,6 +16,7 @@ const (
 	RefreshFirst RefreshMode = iota // 启动首次：清屏 + GC16 闪烁全刷
 	RefreshPartial                  // 日常局部：GL16 无闪烁（等同 KOReader partial/ui）
 	RefreshFull                     // 周期性：GC16 全刷除残影（等同 KOReader full）
+	RefreshInteractive              // 用户交互：DU 快速刷新
 )
 
 // DefaultFullRefreshEvery 与 KOReader 默认 full_refresh_count 一致。
@@ -64,6 +65,8 @@ func (f *FBInk) ShowPNG(path string, mode RefreshMode) error {
 		args = append(args, "-c", "-f", "-W", "GC16")
 	case RefreshFull:
 		args = append(args, "-f", "-W", "GC16")
+	case RefreshInteractive:
+		args = append(args, "-f", "-W", "DU")
 	default:
 		// KOReader 在 Kindle 上 partial/ui 使用 GL16（无闪烁）
 		args = append(args, "-W", "GL16")
