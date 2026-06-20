@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -101,7 +102,32 @@ func (s *Store) migrate() error {
 			return err
 		}
 	}
-	return nil
+	return s.ensureBarsJSONColumn()
+}
+
+func (s *Store) ensureBarsJSONColumn() error {
+	rows, err := s.db.Query(`PRAGMA table_info(summary_snapshot)`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull, pk int
+		var dflt sql.NullString
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+			return err
+		}
+		if name == "bars_json" {
+			return rows.Err()
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	_, err = s.db.Exec(`ALTER TABLE summary_snapshot ADD COLUMN bars_json TEXT`)
+	return err
 }
 
 func (s *Store) IntegrityCheck(ctx context.Context) error {
@@ -206,15 +232,21 @@ type SummaryRow struct {
 	TotalPercent    float64
 	ComposerPercent float64
 	APIPercent      float64
+	Bars            []provider.QuotaBar
 	FetchedAt       time.Time
 }
 
 func (s *Store) SaveSummary(ctx context.Context, providerID string, sum provider.Summary) error {
-	_, err := s.db.ExecContext(ctx, `
+	bars := provider.LegacyBarsFromSummary(sum)
+	barsJSON, err := json.Marshal(bars)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `
 		INSERT INTO summary_snapshot(provider_id, plan_name, membership_type,
 			billing_cycle_start, billing_cycle_end, reset_at,
-			total_percent, composer_percent, api_percent, raw_json, fetched_at)
-		VALUES(?,?,?,?,?,?,?,?,?,?,?)
+			total_percent, composer_percent, api_percent, bars_json, raw_json, fetched_at)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(provider_id) DO UPDATE SET
 			plan_name=excluded.plan_name,
 			membership_type=excluded.membership_type,
@@ -224,6 +256,7 @@ func (s *Store) SaveSummary(ctx context.Context, providerID string, sum provider
 			total_percent=excluded.total_percent,
 			composer_percent=excluded.composer_percent,
 			api_percent=excluded.api_percent,
+			bars_json=excluded.bars_json,
 			raw_json=excluded.raw_json,
 			fetched_at=excluded.fetched_at`,
 		providerID, sum.PlanName, sum.MembershipType,
@@ -231,19 +264,20 @@ func (s *Store) SaveSummary(ctx context.Context, providerID string, sum provider
 		sum.BillingCycleEnd.UTC().Format(time.RFC3339),
 		sum.ResetAt.UTC().Format(time.RFC3339),
 		sum.TotalPercent, sum.ComposerPercent, sum.APIPercent,
-		sum.RawJSON, time.Now().UTC().Format(time.RFC3339))
+		string(barsJSON), sum.RawJSON, time.Now().UTC().Format(time.RFC3339))
 	return err
 }
 
 func (s *Store) LoadSummary(ctx context.Context, providerID string) (SummaryRow, bool, error) {
 	var row SummaryRow
 	var bs, be, ra, fa string
+	var barsJSON sql.NullString
 	err := s.db.QueryRowContext(ctx, `
 		SELECT plan_name, membership_type, billing_cycle_start, billing_cycle_end, reset_at,
-			total_percent, composer_percent, api_percent, fetched_at
+			total_percent, composer_percent, api_percent, bars_json, fetched_at
 		FROM summary_snapshot WHERE provider_id=?`, providerID).Scan(
 		&row.PlanName, &row.MembershipType, &bs, &be, &ra,
-		&row.TotalPercent, &row.ComposerPercent, &row.APIPercent, &fa)
+		&row.TotalPercent, &row.ComposerPercent, &row.APIPercent, &barsJSON, &fa)
 	if err == sql.ErrNoRows {
 		return row, false, nil
 	}
@@ -254,6 +288,12 @@ func (s *Store) LoadSummary(ctx context.Context, providerID string) (SummaryRow,
 	row.BillingEnd, _ = time.Parse(time.RFC3339, be)
 	row.ResetAt, _ = time.Parse(time.RFC3339, ra)
 	row.FetchedAt, _ = time.Parse(time.RFC3339, fa)
+	if barsJSON.Valid && barsJSON.String != "" {
+		_ = json.Unmarshal([]byte(barsJSON.String), &row.Bars)
+	}
+	if len(row.Bars) == 0 {
+		row.Bars = provider.CursorBarsFromPercents(row.TotalPercent, row.ComposerPercent, row.APIPercent)
+	}
 	return row, true, nil
 }
 

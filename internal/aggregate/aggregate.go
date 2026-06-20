@@ -6,6 +6,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/godbobo/kiage/internal/provider"
 	"github.com/godbobo/kiage/internal/store"
 )
 
@@ -13,6 +14,7 @@ type Dashboard struct {
 	PlanName        string
 	ResetAt         time.Time
 	ResetDaysLeft   int
+	Bars            []provider.QuotaBar
 	TotalPercent    float64
 	ComposerPercent float64
 	APIPercent      float64
@@ -67,6 +69,7 @@ func (s *Service) Build(ctx context.Context, providerID string) (Dashboard, erro
 	if ok {
 		dash.PlanName = sum.PlanName
 		dash.ResetAt = sum.ResetAt
+		dash.Bars = sum.Bars
 		dash.TotalPercent = sum.TotalPercent
 		dash.ComposerPercent = sum.ComposerPercent
 		dash.APIPercent = sum.APIPercent
@@ -77,6 +80,9 @@ func (s *Service) Build(ctx context.Context, providerID string) (Dashboard, erro
 		}
 
 		mFrom := sum.BillingStart.In(s.loc).Format("2006-01-02")
+		if sum.BillingStart.IsZero() {
+			mFrom = time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, s.loc).Format("2006-01-02")
+		}
 		mTo := now.Format("2006-01-02")
 		dash.MonthTokens, dash.MonthCost, _ = s.store.SumRollupRange(ctx, providerID, mFrom, mTo)
 	}
