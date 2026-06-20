@@ -6,12 +6,13 @@ import (
 	"time"
 
 	"github.com/godbobo/kiage/internal/aggregate"
+	"github.com/godbobo/kiage/internal/provider"
 )
 
 func drawTopSection(img *image.RGBA, dash aggregate.Dashboard, view ViewState, x, y, w, h int) {
 	_ = h
 	cy := y
-	drawTopRightControls(img, x+w, y+2, view.ChartMetric, view.SettingsActive, view.SettingsURL)
+	drawTopRightControls(img, x+w, y+2, view)
 	title := view.ProviderName
 	if title == "" {
 		title = "—"
@@ -32,26 +33,41 @@ func drawTopSection(img *image.RGBA, dash aggregate.Dashboard, view ViewState, x
 		plan = "—"
 	}
 	reset := "—"
+	resetLabel := "重置"
 	if !dash.ResetAt.IsZero() {
-		reset = dash.ResetAt.Format("1月2日") + " (" + itoa(dash.ResetDaysLeft) + "天)"
+		if view.ProviderID == provider.GLMID {
+			resetLabel = "下次重置"
+			reset = formatQuotaReset(dash.ResetAt, time.Now())
+		} else {
+			reset = dash.ResetAt.Format("1月2日") + " (" + itoa(dash.ResetDaysLeft) + "天)"
+		}
 	}
-	cy = drawText(img, x, cy+8, "套餐 "+plan+" · 重置 "+reset, PlanFontSize(), true)
+	cy = drawText(img, x, cy+8, "套餐 "+plan+" · "+resetLabel+" "+reset, PlanFontSize(), true)
 
 	cy += 8
-	cy = drawBar(img, x, cy, w, "Total", dash.TotalPercent)
-	cy = drawBar(img, x, cy+4, w, "Composer", dash.ComposerPercent)
-	cy = drawBar(img, x, cy+4, w, "API", dash.APIPercent)
+	bars := dash.Bars
+	if len(bars) == 0 {
+		bars = provider.CursorBarsFromPercents(dash.TotalPercent, dash.ComposerPercent, dash.APIPercent)
+	}
+	for _, bar := range bars {
+		cy = drawBar(img, x, cy, w, bar.Label, bar.Percent)
+		cy += 4
+	}
 
-	cy += 12
+	cy += 8
 	colW := w / 3
 	boxH := PeriodBoxHeight()
+	metric := view.ChartMetric
+	if !view.SupportsCost {
+		metric = "token"
+	}
 	periods := []struct {
 		title string
 		value string
 	}{
-		{"今日", formatPeriodValue(view.ChartMetric, dash.DayTokens, dash.DayCost)},
-		{"本月", formatPeriodValue(view.ChartMetric, dash.MonthTokens, dash.MonthCost)},
-		{"今年", formatPeriodValue(view.ChartMetric, dash.YearTokens, dash.YearCost)},
+		{"今日", formatPeriodValue(metric, dash.DayTokens, dash.DayCost)},
+		{"本月", formatPeriodValue(metric, dash.MonthTokens, dash.MonthCost)},
+		{"今年", formatPeriodValue(metric, dash.YearTokens, dash.YearCost)},
 	}
 	for i, p := range periods {
 		drawPeriodBox(img, x+i*colW, cy, colW-6, boxH, p.title, p.value)
@@ -74,7 +90,7 @@ func formatPeriodValue(metric string, tokens int64, cost float64) string {
 	return aggregate.FormatTokens(tokens)
 }
 
-func drawMetricToggle(img *image.RGBA, rightX, y int, metric string) {
+func drawMetricToggle(img *image.RGBA, rightX, y int, metric string, supportsCost bool) {
 	segH := MetricToggleHeight()
 	fontSize := MetricToggleFontSize()
 	padX := MetricTogglePadX()
@@ -83,11 +99,12 @@ func drawMetricToggle(img *image.RGBA, rightX, y int, metric string) {
 		gap = 4
 	}
 	opts := []struct {
-		key   string
-		label string
+		key      string
+		label    string
+		disabled bool
 	}{
-		{"token", "Token"},
-		{"cost", "Cost"},
+		{"token", "Token", false},
+		{"cost", "Cost", !supportsCost},
 	}
 	segW := make([]int, len(opts))
 	totalW := 0
@@ -103,9 +120,11 @@ func drawMetricToggle(img *image.RGBA, rightX, y int, metric string) {
 			sx += segW[j] + gap
 		}
 		sw := segW[i]
-		active := metric == o.key
+		active := metric == o.key && !o.disabled
 		bg := color.Gray{Y: 235}
-		if active {
+		if o.disabled {
+			bg = color.Gray{Y: 245}
+		} else if active {
 			bg = color.Gray{Y: 60}
 		}
 		drawRect(img, sx, y, sw, segH, bg)
@@ -114,8 +133,10 @@ func drawMetricToggle(img *image.RGBA, rightX, y int, metric string) {
 		}
 		labelW := textWidth(o.label, fontSize)
 		labelX := sx + (sw-labelW)/2
-		textColor := color.Black
-		if active {
+		textColor := color.Color(color.Black)
+		if o.disabled {
+			textColor = color.Gray{Y: 170}
+		} else if active {
 			textColor = color.White
 		}
 		drawTextColor(img, labelX, y+8, o.label, fontSize, false, textColor)

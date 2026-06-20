@@ -13,7 +13,9 @@ import (
 
 type ViewState struct {
 	ProviderName   string
+	ProviderID     string
 	ChartMetric    string // "token" or "cost"
+	SupportsCost   bool
 	Orientation    string // "landscape" or "portrait"
 	SyncStatus     string
 	SyncMessage    string
