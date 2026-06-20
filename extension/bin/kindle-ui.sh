@@ -30,7 +30,6 @@ kiage_ui_leave() {
 			rm -f "$KIAGE_FB_DUMP"
 		fi
 		lipc-set-prop com.lab126.pillow disableEnablePillow enable 2>/dev/null
-		lipc-set-prop com.lab126.appmgrd start app://com.lab126.booklet.home 2>/dev/null
 		KIAGE_PILLOW_DISABLED=no
 	fi
 }
