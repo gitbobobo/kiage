@@ -148,14 +148,23 @@
       return x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h;
     }
 
+    function inRectPad(x, y, r, padL, padT, padR, padB) {
+      return x >= r.x - padL && x < r.x + r.w + padR &&
+        y >= r.y - padT && y < r.y + r.h + padB;
+    }
+
     function canvasPoint(e) {
-      const rect = frame.getBoundingClientRect();
-      const w = layout?.width || 1448;
-      const h = layout?.height || 1072;
-      return {
-        x: (e.clientX - rect.left) / rect.width * w,
-        y: (e.clientY - rect.top) / rect.height * h,
-      };
+      const rect = wrap.getBoundingClientRect();
+      const iw = layout?.width || frame.naturalWidth || 1448;
+      const ih = layout?.height || frame.naturalHeight || 1072;
+      const scale = Math.min(rect.width / iw, rect.height / ih);
+      const dispW = iw * scale;
+      const dispH = ih * scale;
+      const offX = (rect.width - dispW) / 2;
+      const offY = (rect.height - dispH) / 2;
+      const lx = e.clientX - rect.left - offX;
+      const ly = e.clientY - rect.top - offY;
+      return { x: lx / scale, y: ly / scale };
     }
 
     async function loadLayout() {
@@ -224,14 +233,17 @@
     wrap.addEventListener('click', (e) => {
       if (!layout?.regions) return;
       const p = canvasPoint(e);
-      if (inRect(p.x, p.y, layout.regions.provider_title)) {
+      const r = layout.regions;
+      if (inRect(p.x, p.y, r.provider_title)) {
         refreshDashboard();
-      } else if (inRect(p.x, p.y, layout.regions.settings)) {
-        toggleSettings();
-      } else if (inRect(p.x, p.y, layout.regions.exit)) {
+      } else if (inRectPad(p.x, p.y, r.exit, 6, 6, 6, 6)) {
         act('exit');
-      } else if (inRect(p.x, p.y, layout.regions.metric_toggle)) {
+      } else if (inRectPad(p.x, p.y, r.settings, 10, 8, 8, 8)) {
+        toggleSettings();
+      } else if (inRect(p.x, p.y, r.metric_toggle)) {
         act('toggle_metric');
+      } else if (inRect(p.x, p.y, r.provider_toggle)) {
+        act('toggle_provider');
       }
     });
 

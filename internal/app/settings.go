@@ -12,9 +12,8 @@ import (
 	"time"
 
 	"github.com/godbobo/kiage/internal/config"
-	"github.com/godbobo/kiage/internal/provider/cursor"
+	"github.com/godbobo/kiage/internal/log"
 	"github.com/godbobo/kiage/internal/render"
-	syncer "github.com/godbobo/kiage/internal/sync"
 )
 
 //go:embed setup.html
@@ -27,32 +26,6 @@ func settingsPort() int {
 		}
 	}
 	return 8765
-}
-
-func localLANURL(port int) string {
-	ifaces, err := net.Interfaces()
-	if err != nil {
-		return fmt.Sprintf("http://127.0.0.1:%d", port)
-	}
-	for _, iface := range ifaces {
-		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
-			continue
-		}
-		addrs, err := iface.Addrs()
-		if err != nil {
-			continue
-		}
-		for _, addr := range addrs {
-			ipnet, ok := addr.(*net.IPNet)
-			if !ok || ipnet.IP.IsLoopback() {
-				continue
-			}
-			if ip4 := ipnet.IP.To4(); ip4 != nil {
-				return fmt.Sprintf("http://%s:%d", ip4.String(), port)
-			}
-		}
-	}
-	return fmt.Sprintf("http://127.0.0.1:%d", port)
 }
 
 func (a *App) ToggleSettingsServer() error {
@@ -89,16 +62,26 @@ func (a *App) ToggleSettingsServer() error {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
-	a.settingsSrv = srv
 	url := localLANURL(listenPort)
+	if render.KindleUI() && url == fmt.Sprintf("http://127.0.0.1:%d", listenPort) {
+		log.Warn("settings server: no wlan IP, check WiFi is connected")
+	}
+
+	kindleFirewallOpen(listenPort)
+
+	a.settingsSrv = srv
+	a.settingsListenPort = listenPort
 
 	a.mu.Lock()
 	a.view.SettingsActive = true
 	a.view.SettingsURL = url
 	a.mu.Unlock()
 
+	log.Info("settings server started port=%d url=%s", listenPort, url)
+
 	go func() {
 		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
+			log.Error("settings server stopped unexpectedly: %v", err)
 			a.settingsMu.Lock()
 			if a.settingsSrv == srv {
 				a.stopSettingsServerLocked()
@@ -131,15 +114,22 @@ func (a *App) stopSettingsServerLocked() error {
 	if a.settingsSrv == nil {
 		return nil
 	}
+	port := a.settingsListenPort
+
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	err := a.settingsSrv.Shutdown(ctx)
 	a.settingsSrv = nil
+	a.settingsListenPort = 0
+
+	kindleFirewallClose(port)
 
 	a.mu.Lock()
 	a.view.SettingsActive = false
 	a.view.SettingsURL = ""
 	a.mu.Unlock()
+
+	log.Info("settings server stopped port=%d", port)
 	return err
 }
 
@@ -161,12 +151,14 @@ func (a *App) handleConfigAPI(w http.ResponseWriter, r *http.Request) {
 		a.mu.RUnlock()
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"token_hint":           config.RedactToken(cfg.Cursor.SessionToken),
+			"glm_key_hint":         config.RedactToken(cfg.GLM.APIKey),
 			"timezone":             cfg.Timezone,
 			"refresh_interval_sec": cfg.RefreshIntervalSec,
 		})
 	case http.MethodPost:
 		var body struct {
 			SessionToken       string `json:"session_token"`
+			GLMAPIKey          string `json:"glm_api_key"`
 			Timezone           string `json:"timezone"`
 			RefreshIntervalSec int    `json:"refresh_interval_sec"`
 		}
@@ -179,20 +171,38 @@ func (a *App) handleConfigAPI(w http.ResponseWriter, r *http.Request) {
 		if body.SessionToken != "" {
 			cfg.Cursor.SessionToken = body.SessionToken
 		}
+		if body.GLMAPIKey != "" {
+			cfg.GLM.APIKey = body.GLMAPIKey
+		}
 		if body.Timezone != "" {
 			cfg.Timezone = body.Timezone
 		}
 		if body.RefreshIntervalSec >= 60 {
+			if body.RefreshIntervalSec > config.MaxRefreshIntervalSec {
+				body.RefreshIntervalSec = config.MaxRefreshIntervalSec
+			}
 			cfg.RefreshIntervalSec = body.RefreshIntervalSec
 		}
 		a.mu.Unlock()
+
+		providers, err := buildProviders(cfg)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		if err := cfg.Validate(); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
 
 		if err := config.Save(a.roots.Config, cfg); err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
-		if err := a.reloadProvider(cfg); err != nil {
+		if err := a.reloadProviders(cfg, providers); err != nil {
 			w.WriteHeader(http.StatusBadRequest)
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
@@ -200,6 +210,7 @@ func (a *App) handleConfigAPI(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"ok":                   true,
 			"token_hint":           config.RedactToken(cfg.Cursor.SessionToken),
+			"glm_key_hint":         config.RedactToken(cfg.GLM.APIKey),
 			"timezone":             cfg.Timezone,
 			"refresh_interval_sec": cfg.RefreshIntervalSec,
 		})
@@ -207,24 +218,4 @@ func (a *App) handleConfigAPI(w http.ResponseWriter, r *http.Request) {
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	}
-}
-
-func (a *App) reloadProvider(cfg config.Config) error {
-	prov, err := cursor.New(cfg)
-	if err != nil {
-		return err
-	}
-	syncSvc := syncer.New(prov, a.store)
-	syncSvc.OnProgress(func(p syncer.Progress) {
-		a.mu.Lock()
-		a.progress = p.Message
-		a.mu.Unlock()
-	})
-
-	a.mu.Lock()
-	a.cfg = cfg
-	a.prov = prov
-	a.sync = syncSvc
-	a.mu.Unlock()
-	return nil
 }

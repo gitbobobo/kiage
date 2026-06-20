@@ -20,6 +20,7 @@ type Progress struct {
 
 type Service struct {
 	mu       sync.Mutex
+	progMu   sync.Mutex
 	prov     provider.Provider
 	store    *store.Store
 	onProg   func(Progress)
@@ -36,7 +37,11 @@ func New(prov provider.Provider, st *store.Store) *Service {
 	}
 }
 
-func (s *Service) OnProgress(fn func(Progress)) { s.onProg = fn }
+func (s *Service) OnProgress(fn func(Progress)) {
+	s.progMu.Lock()
+	s.onProg = fn
+	s.progMu.Unlock()
+}
 
 func (s *Service) Run(ctx context.Context, mode string) error {
 	s.mu.Lock()
@@ -202,7 +207,10 @@ func abs(x float64) float64 {
 }
 
 func (s *Service) report(p Progress) {
-	if s.onProg != nil {
-		s.onProg(p)
+	s.progMu.Lock()
+	fn := s.onProg
+	s.progMu.Unlock()
+	if fn != nil {
+		fn(p)
 	}
 }

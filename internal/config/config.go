@@ -11,15 +11,25 @@ import (
 
 const CurrentVersion = 1
 
+const (
+	MaxCredentialLen        = 8192
+	MaxRefreshIntervalSec   = 86400
+)
+
 type Config struct {
 	Version            int    `json:"version"`
 	Timezone           string `json:"timezone"`
 	RefreshIntervalSec int    `json:"refresh_interval_sec"`
 	Cursor             Cursor `json:"cursor"`
+	GLM                GLM    `json:"glm"`
 }
 
 type Cursor struct {
 	SessionToken string `json:"session_token"`
+}
+
+type GLM struct {
+	APIKey string `json:"api_key"`
 }
 
 func Default() Config {
@@ -29,6 +39,9 @@ func Default() Config {
 		RefreshIntervalSec: 600,
 		Cursor: Cursor{
 			SessionToken: "",
+		},
+		GLM: GLM{
+			APIKey: "",
 		},
 	}
 }
@@ -89,8 +102,14 @@ func Save(path string, cfg Config) error {
 }
 
 func (c Config) Validate() error {
-	if c.Cursor.SessionToken == "" {
-		return errors.New("cursor session token is empty")
+	if c.RefreshIntervalSec > 0 && c.RefreshIntervalSec < 60 {
+		return errors.New("refresh_interval_sec must be >= 60")
+	}
+	if c.RefreshIntervalSec > MaxRefreshIntervalSec {
+		return fmt.Errorf("refresh_interval_sec must be <= %d", MaxRefreshIntervalSec)
+	}
+	if len(c.Cursor.SessionToken) > MaxCredentialLen || len(c.GLM.APIKey) > MaxCredentialLen {
+		return errors.New("credential too long")
 	}
 	if _, err := c.Location(); err != nil {
 		return err

@@ -27,33 +27,34 @@ func (a *App) handleTopTap(x, y int) {
 		return
 	}
 	a.lastTouchTap = time.Now()
-	name := a.prov.DisplayName()
+	providerID := a.activeProviderIDLocked()
+	name := a.view.ProviderName
+	metric := a.view.ChartMetric
+	supportsCost := a.view.SupportsCost
 	a.mu.Unlock()
 
 	size := a.frameSize()
-	regions := render.TopControlsHitRegions(size, name, a.View().ChartMetric)
+	regions := render.TopControlsHitRegions(size, name, metric, providerID)
 
 	action := ""
 	if regions.ProviderTitle.ContainsPadAsymmetric(x, y, 12, 12, 12, 48) {
 		action = "sync"
 	} else {
-		action = render.KindleTopBarAction(size, x, y, regions)
+		action = render.KindleTopControlAction(x, y, regions)
 	}
 
 	if action == "" {
-		log.Info("touch tap (%d,%d) no hit bar_y<120 metric_x=%d-%d settings_x=%d-%d exit_x=%d-%d",
-			x, y,
-			regions.MetricToggle.X-16, regions.MetricToggle.X+regions.MetricToggle.W+16,
-			regions.Settings.X-16, regions.Settings.X+regions.Settings.W+16,
-			regions.Exit.X-16, regions.Exit.X+regions.Exit.W+16)
 		return
 	}
 
 	log.Info("touch tap (%d,%d) action=%s", x, y, action)
 	switch action {
 	case "sync":
-		a.startSyncAsync(context.Background())
+		a.startSyncProviderAsync(context.Background(), providerID)
 	case "metric_toggle":
+		if !supportsCost {
+			return
+		}
 		a.SetViewUrgent(func(v *render.ViewState) {
 			if v.ChartMetric == "token" {
 				v.ChartMetric = "cost"
@@ -61,6 +62,8 @@ func (a *App) handleTopTap(x, y int) {
 				v.ChartMetric = "token"
 			}
 		})
+	case "provider_toggle":
+		a.toggleProvider()
 	case "settings":
 		go func() {
 			if err := a.ToggleSettingsServer(); err != nil {
