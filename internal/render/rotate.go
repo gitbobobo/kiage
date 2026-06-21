@@ -28,6 +28,21 @@ func rotateImage180(src *image.RGBA) *image.RGBA {
 	return dst
 }
 
+// PortraitRotaForDisplay 计算 PNG 是否翻转：仅当当前握持与启动基线不同时翻转。
+// 返回值 2=不翻转，0=翻转（供 shouldFlipPortraitPNG 使用）。
+func PortraitRotaForDisplay(inputRota, _, baselineRota int) int {
+	if inputRota != 2 {
+		inputRota = 0
+	}
+	if baselineRota != 2 {
+		baselineRota = 0
+	}
+	if inputRota == baselineRota {
+		return 2
+	}
+	return 0
+}
+
 // shouldFlipPortraitPNG 在 FBINK_NO_SW_ROTA=1 下，仅 rota=0 时翻转 PNG。
 func shouldFlipPortraitPNG(portraitRota int) bool {
 	return portraitRota == 0
