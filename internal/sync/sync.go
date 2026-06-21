@@ -50,6 +50,10 @@ func (s *Service) Run(ctx context.Context, mode string) error {
 }
 
 func (s *Service) runLocked(ctx context.Context, mode string) error {
+	if !s.prov.Capabilities().UsageEvents {
+		return s.summaryOnlySync(ctx)
+	}
+
 	loc := s.prov.Timezone()
 	now := time.Now().In(loc)
 	year := now.Year()
@@ -82,6 +86,20 @@ func (s *Service) runLocked(ctx context.Context, mode string) error {
 	}
 
 	_ = s.store.SetState(ctx, s.prov.ID(), "last_successful_sync_at", time.Now().UTC().Format(time.RFC3339))
+	return nil
+}
+
+func (s *Service) summaryOnlySync(ctx context.Context) error {
+	s.report(Progress{Mode: "summary", Message: "刷新用量概览", Percent: 0})
+	sum, err := s.prov.FetchSummary(ctx)
+	if err != nil {
+		return err
+	}
+	if err := s.store.SaveSummary(ctx, s.prov.ID(), sum); err != nil {
+		return err
+	}
+	_ = s.store.SetState(ctx, s.prov.ID(), "last_successful_sync_at", time.Now().UTC().Format(time.RFC3339))
+	s.report(Progress{Mode: "summary", Message: "刷新用量概览", Percent: 100})
 	return nil
 }
 
