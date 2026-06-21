@@ -23,6 +23,7 @@ type Config struct {
 	Cursor             Cursor  `json:"cursor"`
 	GLM                GLM     `json:"glm"`
 	MiniMax            MiniMax `json:"minimax"`
+	Kimi               Kimi    `json:"kimi"`
 }
 
 type Cursor struct {
@@ -34,6 +35,10 @@ type GLM struct {
 }
 
 type MiniMax struct {
+	APIKey string `json:"api_key"`
+}
+
+type Kimi struct {
 	APIKey string `json:"api_key"`
 }
 
@@ -49,6 +54,9 @@ func Default() Config {
 			APIKey: "",
 		},
 		MiniMax: MiniMax{
+			APIKey: "",
+		},
+		Kimi: Kimi{
 			APIKey: "",
 		},
 	}
@@ -124,6 +132,9 @@ func (c Config) Validate() error {
 	}
 	if len(c.MiniMax.APIKey) > MaxCredentialLen {
 		return errors.New("minimax api_key too long")
+	}
+	if len(c.Kimi.APIKey) > MaxCredentialLen {
+		return errors.New("kimi api_key too long")
 	}
 	if _, err := c.Location(); err != nil {
 		return err

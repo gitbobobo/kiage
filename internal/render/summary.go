@@ -102,7 +102,7 @@ func drawProviderBlock(img *image.RGBA, x, y, w, maxY int, ps aggregate.Provider
 	if !ps.Configured {
 		plan = "—"
 	}
-	cy = drawText(img, x, cy+8, FormatPlanLine(ps.ProviderID, plan, ps.MembershipType, ps.ResetAt, ps.ResetDaysLeft, now), PlanFontSize(), true)
+	cy = drawText(img, x, cy+8, FormatPlanLine(ps.ProviderID, plan, ps.MembershipType, ps.ResetAt, ps.ResetDaysLeft, bars, now), PlanFontSize(), true)
 	cy += 8
 
 	if len(bars) == 0 {

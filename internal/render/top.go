@@ -28,10 +28,10 @@ func drawTopSection(img *image.RGBA, dash aggregate.Dashboard, view ViewState, x
 	cy = drawText(img, x, cy+6, "更新于 "+updated+" · "+status, StatusFontSize(), false)
 
 	plan := dash.PlanName
-	cy = drawText(img, x, cy+8, FormatPlanLine(view.ProviderID, plan, dash.MembershipType, dash.ResetAt, dash.ResetDaysLeft, time.Now()), PlanFontSize(), true)
+	bars := BarsForProvider(view.ProviderID, dash, true)
+	cy = drawText(img, x, cy+8, FormatPlanLine(view.ProviderID, plan, dash.MembershipType, dash.ResetAt, dash.ResetDaysLeft, bars, time.Now()), PlanFontSize(), true)
 
 	cy += 8
-	bars := BarsForProvider(view.ProviderID, dash, true)
 	for _, bar := range bars {
 		cy = drawBar(img, x, cy, w, bar.Label, bar.Percent)
 		cy += 4

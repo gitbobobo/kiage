@@ -12,7 +12,7 @@ import (
 func TestFormatPlanLineCursor(t *testing.T) {
 	now := time.Date(2026, 6, 21, 12, 0, 0, 0, time.Local)
 	reset := time.Date(2026, 6, 30, 0, 0, 0, 0, time.Local)
-	got := FormatPlanLine(provider.CursorID, "Pro", "", reset, 9, now)
+	got := FormatPlanLine(provider.CursorID, "Pro", "", reset, 9, nil, now)
 	if got != "套餐 Pro · 重置 6月30日 (9天)" {
 		t.Fatalf("unexpected: %q", got)
 	}
@@ -21,7 +21,7 @@ func TestFormatPlanLineCursor(t *testing.T) {
 func TestFormatPlanLineMiniMax(t *testing.T) {
 	now := time.Date(2026, 6, 21, 12, 0, 0, 0, time.Local)
 	reset := time.Date(2026, 6, 21, 18, 30, 0, 0, time.Local)
-	got := FormatPlanLine(provider.MiniMaxID, "Token Plan", "interval", reset, 0, now)
+	got := FormatPlanLine(provider.MiniMaxID, "Token Plan", "interval", reset, 0, nil, now)
 	if got != "套餐 Token Plan · 时段重置 18:30" {
 		t.Fatalf("unexpected: %q", got)
 	}
@@ -30,8 +30,20 @@ func TestFormatPlanLineMiniMax(t *testing.T) {
 func TestFormatPlanLineMiniMaxWeekly(t *testing.T) {
 	now := time.Date(2026, 6, 21, 12, 0, 0, 0, time.Local)
 	reset := time.Date(2026, 6, 28, 0, 0, 0, 0, time.Local)
-	got := FormatPlanLine(provider.MiniMaxID, "Token Plan", "weekly", reset, 6, now)
+	got := FormatPlanLine(provider.MiniMaxID, "Token Plan", "weekly", reset, 6, nil, now)
 	if got != "套餐 Token Plan · 周重置 6月28日 00:00" {
+		t.Fatalf("unexpected: %q", got)
+	}
+}
+
+func TestFormatPlanLineKimi(t *testing.T) {
+	now := time.Date(2026, 6, 21, 12, 0, 0, 0, time.Local)
+	bars := []provider.QuotaBar{
+		{Label: provider.LabelIntervalQuota, ResetAt: now.Add(22 * time.Minute)},
+		{Label: provider.LabelWeeklyQuota, ResetAt: now.Add(17 * time.Hour)},
+	}
+	got := FormatPlanLine(provider.KimiID, "Moderato", "LEVEL_INTERMEDIATE", time.Time{}, 0, bars, now)
+	if got != "套餐 Moderato · 时段重置 22分钟后 · 周重置 17小时后" {
 		t.Fatalf("unexpected: %q", got)
 	}
 }

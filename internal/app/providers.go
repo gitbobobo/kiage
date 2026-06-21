@@ -9,13 +9,14 @@ import (
 	"github.com/godbobo/kiage/internal/provider"
 	"github.com/godbobo/kiage/internal/provider/cursor"
 	"github.com/godbobo/kiage/internal/provider/glm"
+	"github.com/godbobo/kiage/internal/provider/kimi"
 	"github.com/godbobo/kiage/internal/provider/minimax"
 	"github.com/godbobo/kiage/internal/render"
 	syncer "github.com/godbobo/kiage/internal/sync"
 )
 
 func allProviderIDs() []string {
-	return []string{provider.CursorID, provider.GLMID, provider.MiniMaxID}
+	return []string{provider.CursorID, provider.GLMID, provider.MiniMaxID, provider.KimiID}
 }
 
 func detailProviderIDs() []string {
@@ -27,7 +28,7 @@ func isDetailProvider(id string) bool {
 }
 
 func buildProviders(cfg config.Config) (map[string]provider.Provider, error) {
-	out := make(map[string]provider.Provider, 3)
+	out := make(map[string]provider.Provider, 4)
 	cursorProv, err := cursor.New(cfg)
 	if err != nil {
 		return nil, err
@@ -43,6 +44,11 @@ func buildProviders(cfg config.Config) (map[string]provider.Provider, error) {
 		return nil, err
 	}
 	out[provider.MiniMaxID] = minimaxProv
+	kimiProv, err := kimi.New(cfg)
+	if err != nil {
+		return nil, err
+	}
+	out[provider.KimiID] = kimiProv
 	return out, nil
 }
 
@@ -57,6 +63,8 @@ func (a *App) providerConfigured(id string) bool {
 		return cfg.GLM.APIKey != ""
 	case provider.MiniMaxID:
 		return cfg.MiniMax.APIKey != ""
+	case provider.KimiID:
+		return cfg.Kimi.APIKey != ""
 	default:
 		return false
 	}
@@ -92,6 +100,8 @@ func (a *App) providerConfiguredLocked(id string) bool {
 		return a.cfg.GLM.APIKey != ""
 	case provider.MiniMaxID:
 		return a.cfg.MiniMax.APIKey != ""
+	case provider.KimiID:
+		return a.cfg.Kimi.APIKey != ""
 	default:
 		return false
 	}

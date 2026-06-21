@@ -187,13 +187,13 @@ func parseSummary(body []byte, rawJSON string, loc *time.Location) (provider.Sum
 	var bars []provider.QuotaBar
 	if intervalActive {
 		bars = append(bars, provider.QuotaBar{
-			Label:   "5小时配额",
+			Label:   provider.LabelIntervalQuota,
 			Percent: usedPercent(general.CurrentIntervalRemainingPercent),
 		})
 	}
 	if weeklyActive {
 		bars = append(bars, provider.QuotaBar{
-			Label:   "周配额",
+			Label:   provider.LabelWeeklyQuota,
 			Percent: usedPercent(general.CurrentWeeklyRemainingPercent),
 		})
 	}

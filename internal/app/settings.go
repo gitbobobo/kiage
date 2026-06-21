@@ -153,6 +153,7 @@ func (a *App) handleConfigAPI(w http.ResponseWriter, r *http.Request) {
 			"token_hint":           config.RedactToken(cfg.Cursor.SessionToken),
 			"glm_key_hint":         config.RedactToken(cfg.GLM.APIKey),
 			"minimax_key_hint":     config.RedactToken(cfg.MiniMax.APIKey),
+			"kimi_key_hint":        config.RedactToken(cfg.Kimi.APIKey),
 			"timezone":             cfg.Timezone,
 			"refresh_interval_sec": cfg.RefreshIntervalSec,
 		})
@@ -161,6 +162,7 @@ func (a *App) handleConfigAPI(w http.ResponseWriter, r *http.Request) {
 			SessionToken       string `json:"session_token"`
 			GLMAPIKey          string `json:"glm_api_key"`
 			MiniMaxAPIKey      string `json:"minimax_api_key"`
+			KimiAPIKey         string `json:"kimi_api_key"`
 			Timezone           string `json:"timezone"`
 			RefreshIntervalSec int    `json:"refresh_interval_sec"`
 		}
@@ -178,6 +180,9 @@ func (a *App) handleConfigAPI(w http.ResponseWriter, r *http.Request) {
 		}
 		if body.MiniMaxAPIKey != "" {
 			cfg.MiniMax.APIKey = body.MiniMaxAPIKey
+		}
+		if body.KimiAPIKey != "" {
+			cfg.Kimi.APIKey = body.KimiAPIKey
 		}
 		if body.Timezone != "" {
 			cfg.Timezone = body.Timezone
@@ -217,6 +222,7 @@ func (a *App) handleConfigAPI(w http.ResponseWriter, r *http.Request) {
 			"token_hint":           config.RedactToken(cfg.Cursor.SessionToken),
 			"glm_key_hint":         config.RedactToken(cfg.GLM.APIKey),
 			"minimax_key_hint":     config.RedactToken(cfg.MiniMax.APIKey),
+			"kimi_key_hint":        config.RedactToken(cfg.Kimi.APIKey),
 			"timezone":             cfg.Timezone,
 			"refresh_interval_sec": cfg.RefreshIntervalSec,
 		})

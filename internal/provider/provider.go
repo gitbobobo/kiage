@@ -10,7 +10,11 @@ const (
 	CursorID         = "cursor"
 	GLMID            = "glm"
 	MiniMaxID        = "minimax"
+	KimiID           = "kimi"
 	AppStateProvider = "_app"
+
+	LabelIntervalQuota = "5小时配额"
+	LabelWeeklyQuota   = "周配额"
 )
 
 var (

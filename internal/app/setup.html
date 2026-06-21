@@ -46,6 +46,11 @@
     <p class="hint" id="minimaxHint">当前：未配置</p>
   </div>
   <div class="field">
+    <label for="kimiKey">Kimi API Key</label>
+    <input id="kimiKey" type="password" autocomplete="off" placeholder="Kimi Code API Key（在 code.kimi.com 控制台创建）" />
+    <p class="hint" id="kimiHint">当前：未配置</p>
+  </div>
+  <div class="field">
     <label for="tz">时区</label>
     <select id="tz">
       <option value="Asia/Shanghai">Asia/Shanghai</option>
@@ -70,6 +75,7 @@
       document.getElementById('tokenHint').textContent = '当前：' + (d.token_hint || '未配置');
       document.getElementById('glmHint').textContent = '当前：' + (d.glm_key_hint || '未配置');
       document.getElementById('minimaxHint').textContent = '当前：' + (d.minimax_key_hint || '未配置');
+      document.getElementById('kimiHint').textContent = '当前：' + (d.kimi_key_hint || '未配置');
       document.getElementById('tz').value = d.timezone || 'Asia/Shanghai';
       document.getElementById('interval').value = d.refresh_interval_sec || 600;
     }
@@ -85,6 +91,7 @@
             session_token: document.getElementById('token').value.trim(),
             glm_api_key: document.getElementById('glmKey').value.trim(),
             minimax_api_key: document.getElementById('minimaxKey').value.trim(),
+            kimi_api_key: document.getElementById('kimiKey').value.trim(),
             timezone: document.getElementById('tz').value,
             refresh_interval_sec: parseInt(document.getElementById('interval').value, 10) || 600,
           }),
@@ -94,9 +101,11 @@
         document.getElementById('token').value = '';
         document.getElementById('glmKey').value = '';
         document.getElementById('minimaxKey').value = '';
+        document.getElementById('kimiKey').value = '';
         document.getElementById('tokenHint').textContent = '当前：' + (d.token_hint || '未配置');
         document.getElementById('glmHint').textContent = '当前：' + (d.glm_key_hint || '未配置');
         document.getElementById('minimaxHint').textContent = '当前：' + (d.minimax_key_hint || '未配置');
+        document.getElementById('kimiHint').textContent = '当前：' + (d.kimi_key_hint || '未配置');
         showMsg('已保存，看板将自动使用新配置', true);
       } catch (e) {
         showMsg(e.message || String(e), false);
