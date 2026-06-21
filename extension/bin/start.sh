@@ -37,6 +37,7 @@ fi
 
 mkdir -p "$ROOT/cache"
 LOG="$ROOT/cache/kiage.log"
+export KIAGE_UI_LOG="$LOG"
 
 log_line() {
 	echo "$1" >>"$LOG"
@@ -48,8 +49,10 @@ if pgrep -f "$ROOT/bin/kiage run" >/dev/null 2>&1; then
 fi
 
 cleanup() {
+	log_line "[start.sh] cleanup begin"
 	kiage_ui_leave
 	lipc-set-prop com.lab126.powerd preventScreenSaver 0 2>/dev/null
+	log_line "[start.sh] cleanup done"
 }
 trap cleanup EXIT INT TERM
 
