@@ -12,8 +12,26 @@ import (
 func TestFormatPlanLineCursor(t *testing.T) {
 	now := time.Date(2026, 6, 21, 12, 0, 0, 0, time.Local)
 	reset := time.Date(2026, 6, 30, 0, 0, 0, 0, time.Local)
-	got := FormatPlanLine(provider.CursorID, "Pro", reset, 9, now)
+	got := FormatPlanLine(provider.CursorID, "Pro", "", reset, 9, now)
 	if got != "套餐 Pro · 重置 6月30日 (9天)" {
+		t.Fatalf("unexpected: %q", got)
+	}
+}
+
+func TestFormatPlanLineMiniMax(t *testing.T) {
+	now := time.Date(2026, 6, 21, 12, 0, 0, 0, time.Local)
+	reset := time.Date(2026, 6, 21, 18, 30, 0, 0, time.Local)
+	got := FormatPlanLine(provider.MiniMaxID, "Token Plan", "interval", reset, 0, now)
+	if got != "套餐 Token Plan · 时段重置 18:30" {
+		t.Fatalf("unexpected: %q", got)
+	}
+}
+
+func TestFormatPlanLineMiniMaxWeekly(t *testing.T) {
+	now := time.Date(2026, 6, 21, 12, 0, 0, 0, time.Local)
+	reset := time.Date(2026, 6, 28, 0, 0, 0, 0, time.Local)
+	got := FormatPlanLine(provider.MiniMaxID, "Token Plan", "weekly", reset, 6, now)
+	if got != "套餐 Token Plan · 周重置 6月28日 00:00" {
 		t.Fatalf("unexpected: %q", got)
 	}
 }
@@ -21,6 +39,9 @@ func TestFormatPlanLineCursor(t *testing.T) {
 func TestBarsForProviderUnconfigured(t *testing.T) {
 	if BarsForProvider(provider.CursorID, aggregate.Dashboard{TotalPercent: 50}, false) != nil {
 		t.Fatal("unconfigured should return nil bars")
+	}
+	if BarsForProvider(provider.MiniMaxID, aggregate.Dashboard{}, true) != nil {
+		t.Fatal("configured with empty bars should return nil")
 	}
 }
 
