@@ -16,7 +16,7 @@ func frameBaseKey(screen render.Screen, providerID string) string {
 }
 
 func nextScreen(screen render.Screen, providerID string) (render.Screen, string) {
-	ids := allProviderIDs()
+	ids := detailProviderIDs()
 	switch screen {
 	case render.ScreenSummary:
 		if len(ids) == 0 {
@@ -67,7 +67,7 @@ func (a *App) allSummarySnapsReadyLocked() bool {
 
 func (a *App) setScreen(screen render.Screen, providerID string, triggerSync bool) {
 	if screen == render.ScreenProvider {
-		if providerID != provider.CursorID && providerID != provider.GLMID {
+		if !isDetailProvider(providerID) {
 			return
 		}
 	}

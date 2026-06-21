@@ -3,20 +3,31 @@ package app
 import (
 	"context"
 
+	"slices"
+
 	"github.com/godbobo/kiage/internal/config"
 	"github.com/godbobo/kiage/internal/provider"
 	"github.com/godbobo/kiage/internal/provider/cursor"
 	"github.com/godbobo/kiage/internal/provider/glm"
+	"github.com/godbobo/kiage/internal/provider/minimax"
 	"github.com/godbobo/kiage/internal/render"
 	syncer "github.com/godbobo/kiage/internal/sync"
 )
 
 func allProviderIDs() []string {
+	return []string{provider.CursorID, provider.GLMID, provider.MiniMaxID}
+}
+
+func detailProviderIDs() []string {
 	return []string{provider.CursorID, provider.GLMID}
 }
 
+func isDetailProvider(id string) bool {
+	return slices.Contains(detailProviderIDs(), id)
+}
+
 func buildProviders(cfg config.Config) (map[string]provider.Provider, error) {
-	out := make(map[string]provider.Provider, 2)
+	out := make(map[string]provider.Provider, 3)
 	cursorProv, err := cursor.New(cfg)
 	if err != nil {
 		return nil, err
@@ -27,6 +38,11 @@ func buildProviders(cfg config.Config) (map[string]provider.Provider, error) {
 		return nil, err
 	}
 	out[provider.GLMID] = glmProv
+	minimaxProv, err := minimax.New(cfg)
+	if err != nil {
+		return nil, err
+	}
+	out[provider.MiniMaxID] = minimaxProv
 	return out, nil
 }
 
@@ -39,6 +55,8 @@ func (a *App) providerConfigured(id string) bool {
 		return cfg.Cursor.SessionToken != ""
 	case provider.GLMID:
 		return cfg.GLM.APIKey != ""
+	case provider.MiniMaxID:
+		return cfg.MiniMax.APIKey != ""
 	default:
 		return false
 	}
@@ -53,14 +71,14 @@ func (a *App) activeProviderIDLocked() string {
 
 func (a *App) loadActiveProvider(ctx context.Context) {
 	id, ok, _ := a.store.GetState(ctx, provider.AppStateProvider, "active_provider")
-	if !ok || (id != provider.CursorID && id != provider.GLMID) {
+	if !ok || !isDetailProvider(id) {
 		id = provider.CursorID
 	}
 	a.activeProviderID = id
 }
 
 func (a *App) setActiveProvider(id string) {
-	if id != provider.CursorID && id != provider.GLMID {
+	if !isDetailProvider(id) {
 		return
 	}
 	a.setScreen(render.ScreenProvider, id, true)
@@ -72,6 +90,8 @@ func (a *App) providerConfiguredLocked(id string) bool {
 		return a.cfg.Cursor.SessionToken != ""
 	case provider.GLMID:
 		return a.cfg.GLM.APIKey != ""
+	case provider.MiniMaxID:
+		return a.cfg.MiniMax.APIKey != ""
 	default:
 		return false
 	}
