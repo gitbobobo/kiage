@@ -97,3 +97,8 @@ func keepScreenAwake() {
 func releaseScreenAwake() {
 	_ = exec.Command("lipc-set-prop", "com.lab126.powerd", "preventScreenSaver", "0").Run()
 }
+
+func (a *App) shutdownKindleInputs() {
+	// UI 恢复由 start.sh trap → kiage_ui_leave 负责；此处仅提前释放按键 proc。
+	_ = exec.Command("sh", "-c", `[ -e /proc/keypad ] && echo unlock >/proc/keypad; [ -e /proc/fiveway ] && echo unlock >/proc/fiveway`).Run()
+}
