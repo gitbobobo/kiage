@@ -9,6 +9,7 @@ import (
 const (
 	CursorID         = "cursor"
 	GLMID            = "glm"
+	MiniMaxID        = "minimax"
 	AppStateProvider = "_app"
 )
 
