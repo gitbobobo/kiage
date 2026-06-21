@@ -15,8 +15,6 @@ import (
 	"github.com/godbobo/kiage/internal/log"
 )
 
-const keyDebounce = 300 * time.Millisecond
-
 type KeyListener struct {
 	f *os.File
 }
@@ -41,6 +39,7 @@ func (l *KeyListener) Close() error {
 	if l == nil || l.f == nil {
 		return nil
 	}
+	releaseInputGrab(l.f)
 	return l.f.Close()
 }
 
@@ -48,9 +47,11 @@ func (l *KeyListener) Run(ctx context.Context, h KeyHandler) {
 	if l == nil || l.f == nil || h == nil {
 		return
 	}
+	det := newClickDetector()
+	defer det.Stop()
+
 	var (
 		buf       = make([]byte, inputEventSize)
-		lastUp    time.Time
 		pressedAt = make(map[uint16]int)
 	)
 	for {
@@ -82,20 +83,39 @@ func (l *KeyListener) Run(ctx context.Context, h KeyHandler) {
 				continue
 			}
 			delete(pressedAt, code)
-			if !ScreenUpKey(c, rota) {
+
+			var dir clickDir
+			switch {
+			case ScreenUpKey(c, rota):
+				dir = clickUp
+			case ScreenDownKey(c, rota):
+				dir = clickDown
+			default:
 				continue
 			}
-			now := time.Now()
-			if now.Sub(lastUp) < keyDebounce {
-				log.Info("key screen-up code=%d rota=%d ignored debounce", c, rota)
-				continue
-			}
-			lastUp = now
-			log.Info("key screen-up code=%d rota=%d", c, rota)
-			h.OnScreenUp()
+
+			keyCode, keyRota := c, rota
+			det.onRelease(dir, func(action ScreenKeyAction) {
+				log.Info("key %s code=%d rota=%d", screenKeyActionName(action), keyCode, keyRota)
+				h.OnScreenKey(action)
+			})
 		case 2:
 		}
 	}
+}
+
+func screenKeyActionName(a ScreenKeyAction) string {
+	switch a {
+	case ScreenUpSingle:
+		return "up-single"
+	case ScreenUpDouble:
+		return "up-double"
+	case ScreenDownSingle:
+		return "down-single"
+	case ScreenDownDouble:
+		return "down-double"
+	}
+	return "?"
 }
 
 func gpioKeyDevicePath() string {

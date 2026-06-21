@@ -66,7 +66,6 @@
       white-space: nowrap;
     }
     button:hover { background: #444; }
-    button.active { background: #555; border-color: #888; }
     .main {
       flex: 1;
       min-height: 0;
@@ -109,8 +108,6 @@
     <div class="header-right">
       <span class="service-url" id="serviceUrl"></span>
       <div class="toolbar">
-        <button id="settingsBtn" onclick="toggleSettings()">设置</button>
-        <button onclick="act('toggle_metric')">Token/花费</button>
         <button onclick="act('refresh')">手动刷新</button>
         <button onclick="toggleOrient()">横/竖屏</button>
       </div>
@@ -124,9 +121,14 @@
   <script>
     const frame = document.getElementById('frame');
     const wrap = document.getElementById('wrap');
-    const settingsBtn = document.getElementById('settingsBtn');
     const serviceUrlEl = document.getElementById('serviceUrl');
     let layout = null;
+
+    const CLICK_WINDOW_MS = 300;
+    const keyClick = {
+      ArrowUp: { lastAt: 0, timer: null },
+      ArrowDown: { lastAt: 0, timer: null },
+    };
 
     function setServiceUrl(text, href) {
       serviceUrlEl.textContent = '';
@@ -148,11 +150,6 @@
       return x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h;
     }
 
-    function inRectPad(x, y, r, padL, padT, padR, padB) {
-      return x >= r.x - padL && x < r.x + r.w + padR &&
-        y >= r.y - padT && y < r.y + r.h + padB;
-    }
-
     function canvasPoint(e) {
       const rect = wrap.getBoundingClientRect();
       const iw = layout?.width || frame.naturalWidth || 1448;
@@ -170,14 +167,12 @@
     async function loadLayout() {
       const r = await fetch('/api/layout');
       layout = await r.json();
-      syncSettingsUI();
+      syncServiceUrl();
     }
 
-    function syncSettingsUI() {
+    function syncServiceUrl() {
       if (!layout) return;
       const active = !!layout.settings_active;
-      settingsBtn.classList.toggle('active', active);
-      settingsBtn.textContent = active ? '设置（已开启）' : '设置';
       if (active && layout.settings_url) {
         setServiceUrl(layout.settings_url, layout.settings_url);
       } else {
@@ -211,15 +206,13 @@
           layout.settings_active = !!d.settings_active;
           layout.settings_url = d.settings_url || '';
         }
-        syncSettingsUI();
+        syncServiceUrl();
         if (d.error) setServiceUrl('设置服务：' + d.error);
         else if (!d.settings_active) setServiceUrl('');
       }
       refresh();
       if (name !== 'toggle_settings') await loadLayout();
     }
-
-    async function toggleSettings() { await act('toggle_settings'); }
 
     function toggleOrient() {
       const portrait = wrap.classList.contains('portrait');
@@ -230,28 +223,43 @@
       });
     }
 
+    function handleArrowKey(key) {
+      const state = keyClick[key];
+      const now = Date.now();
+      if (state.lastAt && now - state.lastAt < CLICK_WINDOW_MS) {
+        if (state.timer) {
+          clearTimeout(state.timer);
+          state.timer = null;
+        }
+        state.lastAt = 0;
+        if (key === 'ArrowUp') act('toggle_metric');
+        else act('exit');
+        return;
+      }
+      state.lastAt = now;
+      if (state.timer) clearTimeout(state.timer);
+      state.timer = setTimeout(() => {
+        state.timer = null;
+        state.lastAt = 0;
+        if (key === 'ArrowUp') act('toggle_provider');
+        else act('toggle_settings');
+      }, CLICK_WINDOW_MS);
+    }
+
     wrap.addEventListener('click', (e) => {
-      if (!layout?.regions) return;
+      if (!layout?.regions?.provider_title) return;
       const p = canvasPoint(e);
-      const r = layout.regions;
-      if (inRect(p.x, p.y, r.provider_title)) {
+      if (inRect(p.x, p.y, layout.regions.provider_title)) {
         refreshDashboard();
-      } else if (inRectPad(p.x, p.y, r.exit, 6, 6, 6, 6)) {
-        act('exit');
-      } else if (inRectPad(p.x, p.y, r.settings, 10, 8, 8, 8)) {
-        toggleSettings();
-      } else if (inRect(p.x, p.y, r.metric_toggle)) {
-        act('toggle_metric');
       }
     });
 
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'ArrowUp') {
+      if (e.repeat) return;
+      if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
         e.preventDefault();
-        act('toggle_provider');
+        handleArrowKey(e.key);
       }
-      if (e.key === 't' || e.key === 'T') act('toggle_metric');
-      if (e.key === 'g' || e.key === 'G') toggleSettings();
       if (e.key === 'r' || e.key === 'R') act('refresh');
     });
 

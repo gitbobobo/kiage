@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"time"
 
+	"github.com/godbobo/kiage/internal/input"
 	"github.com/godbobo/kiage/internal/log"
 	"github.com/godbobo/kiage/internal/render"
 )
@@ -31,8 +32,33 @@ func (h *kindleKeyHandler) PortraitRota() int {
 	return h.app.currentPortraitRota()
 }
 
-func (h *kindleKeyHandler) OnScreenUp() {
-	go h.app.toggleProvider()
+func (h *kindleKeyHandler) OnScreenKey(action input.ScreenKeyAction) {
+	switch action {
+	case input.ScreenUpSingle:
+		go h.app.toggleProvider()
+	case input.ScreenUpDouble:
+		h.app.mu.RLock()
+		supportsCost := h.app.view.SupportsCost
+		h.app.mu.RUnlock()
+		if !supportsCost {
+			return
+		}
+		h.app.SetViewUrgent(func(v *render.ViewState) {
+			if v.ChartMetric == "token" {
+				v.ChartMetric = "cost"
+			} else {
+				v.ChartMetric = "token"
+			}
+		})
+	case input.ScreenDownSingle:
+		go func() {
+			if err := h.app.ToggleSettingsServer(); err != nil {
+				log.Warn("toggle settings: %v", err)
+			}
+		}()
+	case input.ScreenDownDouble:
+		h.app.requestExit()
+	}
 }
 
 func (a *App) handleTopTap(x, y int) {
