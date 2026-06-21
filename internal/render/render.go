@@ -2,7 +2,6 @@ package render
 
 import (
 	"bytes"
-	"fmt"
 	"image"
 	"image/color"
 	"image/draw"
@@ -17,6 +16,7 @@ type ViewState struct {
 	ChartMetric    string // "token" or "cost"
 	SupportsCost   bool
 	Orientation    string // "landscape" or "portrait"
+	PortraitRota   int    // 竖屏旋转：0 正立，2 倒立
 	SyncStatus     string
 	SyncMessage    string
 	SettingsActive bool
@@ -35,14 +35,7 @@ func DefaultSize(orientation string) Size {
 	return Size{Width: 1448, Height: 1072}
 }
 
-func RenderPNG(dash aggregate.Dashboard, line []aggregate.LinePoint, heat aggregate.HeatmapStats, view ViewState, size Size) (out []byte, err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			out = nil
-			err = fmt.Errorf("render panic: %v", r)
-		}
-	}()
-
+func DrawFrame(dash aggregate.Dashboard, line []aggregate.LinePoint, heat aggregate.HeatmapStats, view ViewState, size Size) *image.RGBA {
 	img := image.NewRGBA(image.Rect(0, 0, size.Width, size.Height))
 	draw.Draw(img, img.Bounds(), &image.Uniform{color.White}, image.Point{}, draw.Src)
 
@@ -68,7 +61,17 @@ func RenderPNG(dash aggregate.Dashboard, line []aggregate.LinePoint, heat aggreg
 	}
 
 	drawHeatmap(img, PadX, heatY, w, heatH, heat)
+	return img
+}
 
+func PortraitOrient(base *image.RGBA, portraitRota int) *image.RGBA {
+	if shouldFlipPortraitPNG(portraitRota) {
+		return rotateImage180(base)
+	}
+	return base
+}
+
+func EncodePNG(img image.Image) ([]byte, error) {
 	var buf bytes.Buffer
 	enc := png.Encoder{CompressionLevel: png.BestSpeed}
 	if err := enc.Encode(&buf, img); err != nil {
