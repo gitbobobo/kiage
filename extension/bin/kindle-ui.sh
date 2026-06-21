@@ -1,8 +1,8 @@
 #!/bin/sh
 # Kindle 全屏：暂停系统 UI（参考 KOReader KUAL 启动路径）。
-KIAGE_AWESOME_STOPPED=no
-KIAGE_PILLOW_DISABLED=no
-KIAGE_FB_DUMP=""
+export KIAGE_AWESOME_STOPPED=no
+export KIAGE_PILLOW_DISABLED=no
+export KIAGE_FB_DUMP=""
 
 kiage_ui_enter() {
 	if [ -r /dev/fb0 ]; then
@@ -13,7 +13,7 @@ kiage_ui_enter() {
 		KIAGE_PILLOW_DISABLED=yes
 	fi
 	if killall -0 awesome 2>/dev/null; then
-		killall -STOP awesome 2>/dev/null && KIAGE_AWESOME_STOPPED=yes
+		killall -STOP awesome 2>/dev/null && export KIAGE_AWESOME_STOPPED=yes
 	fi
 	# 等待 KUAL / WM 收尾，避免系统界面叠在应用上
 	sleep 2
