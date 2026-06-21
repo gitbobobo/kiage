@@ -163,14 +163,16 @@ func binaryPutEvent(buf []byte, typ, code uint16, val int32) {
 }
 
 func TestOrientationEmitterDedup(t *testing.T) {
-	emit := newOrientationEmitter(200 * time.Millisecond)
+	emit := newOrientationEmitter(50 * time.Millisecond)
 	var calls []int
 	onRota := func(rota int) { calls = append(calls, rota) }
 
 	emit.try(0, "/dev/input/event6", onRota)
 	emit.try(0, "/dev/input/event6", onRota)
+	time.Sleep(60 * time.Millisecond)
 	emit.try(2, "/dev/input/event6", onRota)
 	emit.try(2, "/dev/input/event6", onRota)
+	time.Sleep(60 * time.Millisecond)
 
 	if len(calls) != 2 || calls[0] != 0 || calls[1] != 2 {
 		t.Fatalf("calls=%v want [0 2]", calls)

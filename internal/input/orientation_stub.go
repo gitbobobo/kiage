@@ -2,7 +2,10 @@
 
 package input
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 type OrientationListener struct{}
 
@@ -19,5 +22,9 @@ func QueryInitialRota(fbinkBin string) int {
 }
 
 func LipcPortraitRota() (int, bool) {
+	return 0, false
+}
+
+func PeekAccelRota(_ time.Duration) (int, bool) {
 	return 0, false
 }

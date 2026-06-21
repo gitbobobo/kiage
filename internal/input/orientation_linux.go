@@ -5,6 +5,7 @@ package input
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/godbobo/kiage/internal/display"
@@ -133,7 +135,7 @@ func (l *OrientationListener) Run(ctx context.Context, onRota func(rota int)) {
 	if l == nil || onRota == nil {
 		return
 	}
-	emit := newOrientationEmitter(400 * time.Millisecond)
+	emit := newOrientationEmitter(800 * time.Millisecond)
 	if l.f == nil {
 		<-ctx.Done()
 		return
@@ -163,29 +165,45 @@ func (l *OrientationListener) Run(ctx context.Context, onRota func(rota int)) {
 
 type orientationEmitter struct {
 	mu       sync.Mutex
-	lastRota int
-	lastAt   time.Time
+	pending  int
+	lastEmit int
 	debounce time.Duration
+	timer    *time.Timer
+	dev      string
+	onRota   func(int)
 }
 
 func newOrientationEmitter(debounce time.Duration) *orientationEmitter {
-	return &orientationEmitter{lastRota: -1, debounce: debounce}
+	return &orientationEmitter{lastEmit: -1, debounce: debounce}
 }
 
 func (e *orientationEmitter) try(rota int, dev string, onRota func(int)) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	now := time.Now()
-	if rota == e.lastRota {
+	if rota == e.lastEmit {
 		return
 	}
-	if e.lastRota >= 0 && now.Sub(e.lastAt) < e.debounce {
-		return
+	e.pending = rota
+	e.dev = dev
+	e.onRota = onRota
+	if e.timer != nil {
+		e.timer.Stop()
 	}
-	e.lastRota = rota
-	e.lastAt = now
-	log.Info("orientation event rota=%d dev=%s", rota, dev)
-	onRota(rota)
+	pending := rota
+	device := dev
+	e.timer = time.AfterFunc(e.debounce, func() {
+		e.mu.Lock()
+		defer e.mu.Unlock()
+		if e.pending != pending || pending == e.lastEmit {
+			return
+		}
+		e.lastEmit = pending
+		cb := e.onRota
+		log.Info("orientation event rota=%d dev=%s", pending, device)
+		if cb != nil {
+			cb(pending)
+		}
+	})
 }
 
 func (l *OrientationListener) parseEvent(buf []byte) (rota int, ok bool) {
@@ -243,30 +261,93 @@ func mapMscGyroValue(val int) (int, bool) {
 	}
 }
 
+// PeekAccelRota 非阻塞读取加速度计最近方向（启动时 fbink rota 可能陈旧）。
+func PeekAccelRota(timeout time.Duration) (int, bool) {
+	touchDev := touchDevicePath()
+	accel := findAccelDevice(touchDev)
+	if accel.path == "" {
+		return 0, false
+	}
+	f, err := os.OpenFile(accel.path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		log.Warn("orientation accel peek open: %v", err)
+		return 0, false
+	}
+	defer f.Close()
+
+	l := &OrientationListener{f: f, gen: detectGyroGeneration(accel.path)}
+	deadline := time.Now().Add(timeout)
+	buf := make([]byte, inputEventSize)
+	var last int
+	var got bool
+	for time.Now().Before(deadline) {
+		_, err := io.ReadFull(f, buf)
+		if err != nil {
+			if errors.Is(err, syscall.EAGAIN) || errors.Is(err, os.ErrDeadlineExceeded) {
+				time.Sleep(50 * time.Millisecond)
+				continue
+			}
+			var pathErr *os.PathError
+			if errors.As(err, &pathErr) && errors.Is(pathErr.Err, syscall.EAGAIN) {
+				time.Sleep(50 * time.Millisecond)
+				continue
+			}
+			break
+		}
+		if rota, ok := l.parseEvent(buf); ok {
+			last = rota
+			got = true
+		}
+	}
+	if !got {
+		return 0, false
+	}
+	return last, true
+}
+
 // QueryInitialRota 启动时探测竖屏旋转角（0 正立，2 倒立）。
 func QueryInitialRota(fbinkBin string) int {
 	if v := os.Getenv("KIAGE_ORIENTATION"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && (n == 0 || n == 2) {
+			log.Info("orientation initial rota=%d source=env", n)
 			return n
 		}
 	}
-	if code := queryAccelerometerLIPC(); code != "" {
-		switch code {
-		case "U", "V":
-			return 0
-		case "D":
-			return 2
-		case "R", "L":
-			log.Warn("orientation initial lipc=%q landscape ignored", code)
-		}
+
+	awesomeStopped := os.Getenv("KIAGE_AWESOME_STOPPED") == "yes"
+
+	// lipc 在 awesome STOP 时会短暂 CONT，可读到真实握持方向。
+	if rota, ok := lipcPortraitRotaReliable(); ok {
+		log.Info("orientation initial rota=%d source=lipc", rota)
+		return rota
 	}
+	if awesomeStopped {
+		log.Info("orientation initial lipc failed (awesome stopped)")
+	}
+
+	if rota, ok := PeekAccelRota(500 * time.Millisecond); ok {
+		log.Info("orientation initial rota=%d source=accel", rota)
+		return rota
+	}
+
 	if fbinkBin != "" {
 		if vp, err := display.QueryViewport(fbinkBin); err == nil {
 			if r := vp.CurrentRota; r == 0 || r == 2 {
+				if awesomeStopped && r == 0 {
+					log.Info("orientation initial rota=2 source=default (fbink rota=0 stale)")
+					return 2
+				}
+				log.Info("orientation initial rota=%d source=fbink", r)
 				return r
 			}
 		}
 	}
+
+	if awesomeStopped {
+		log.Info("orientation initial rota=2 source=default-awesome-stopped")
+		return 2
+	}
+	log.Info("orientation initial rota=0 source=default")
 	return 0
 }
 
