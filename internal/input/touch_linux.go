@@ -97,6 +97,19 @@ func readTouchBounds(f *os.File, dev string) TouchBounds {
 }
 
 func absMaximum(f *os.File, code int) int {
+	v, _ := absInfo(f, code)
+	return int(v.Maximum)
+}
+
+func absValue(f *os.File, code int) (int, bool) {
+	info, ok := absInfo(f, code)
+	if !ok {
+		return 0, false
+	}
+	return int(info.Value), true
+}
+
+func absInfo(f *os.File, code int) (inputAbsinfo, bool) {
 	var info inputAbsinfo
 	_, _, errno := unix.Syscall(
 		unix.SYS_IOCTL,
@@ -105,9 +118,9 @@ func absMaximum(f *os.File, code int) int {
 		uintptr(unsafe.Pointer(&info)),
 	)
 	if errno != 0 {
-		return 0
+		return inputAbsinfo{}, false
 	}
-	return int(info.Maximum)
+	return info, true
 }
 
 func absMaxFromSysfs(dev string) (maxX, maxY int) {
@@ -159,6 +172,22 @@ func grabTouchDevice(f *os.File) error {
 	return nil
 }
 
+func releaseInputGrab(f *os.File) {
+	if f == nil {
+		return
+	}
+	zero := int32(0)
+	_, _, errno := unix.Syscall(
+		unix.SYS_IOCTL,
+		f.Fd(),
+		eviocgrab(),
+		uintptr(unsafe.Pointer(&zero)),
+	)
+	if errno != 0 {
+		log.Warn("input ungrab failed: %v", errno)
+	}
+}
+
 func touchDevicePath() string {
 	if p := os.Getenv("KIAGE_TOUCH_DEV"); p != "" {
 		return p
@@ -208,6 +237,7 @@ func (l *TouchListener) Close() error {
 	if l.f == nil {
 		return nil
 	}
+	releaseInputGrab(l.f)
 	return l.f.Close()
 }
 
