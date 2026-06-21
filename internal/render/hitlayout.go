@@ -15,7 +15,10 @@ type TopHitRegions struct {
 const topTitleY = 16
 
 // TopControlsHitRegions 返回顶部可点击区域。
-func TopControlsHitRegions(providerName string) TopHitRegions {
+func TopControlsHitRegions(screen Screen, providerName string) TopHitRegions {
+	if screen == ScreenSummary {
+		return TopHitRegions{}
+	}
 	titleW := textWidth(providerName, TitleFontSize())
 	if titleW < 48 {
 		titleW = 48

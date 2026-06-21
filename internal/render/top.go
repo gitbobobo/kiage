@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/godbobo/kiage/internal/aggregate"
-	"github.com/godbobo/kiage/internal/provider"
 )
 
 func drawTopSection(img *image.RGBA, dash aggregate.Dashboard, view ViewState, x, y, w, h int) {
@@ -29,26 +28,10 @@ func drawTopSection(img *image.RGBA, dash aggregate.Dashboard, view ViewState, x
 	cy = drawText(img, x, cy+6, "更新于 "+updated+" · "+status, StatusFontSize(), false)
 
 	plan := dash.PlanName
-	if plan == "" {
-		plan = "—"
-	}
-	reset := "—"
-	resetLabel := "重置"
-	if !dash.ResetAt.IsZero() {
-		if view.ProviderID == provider.GLMID {
-			resetLabel = "下次重置"
-			reset = formatQuotaReset(dash.ResetAt, time.Now())
-		} else {
-			reset = dash.ResetAt.Format("1月2日") + " (" + itoa(dash.ResetDaysLeft) + "天)"
-		}
-	}
-	cy = drawText(img, x, cy+8, "套餐 "+plan+" · "+resetLabel+" "+reset, PlanFontSize(), true)
+	cy = drawText(img, x, cy+8, FormatPlanLine(view.ProviderID, plan, dash.ResetAt, dash.ResetDaysLeft, time.Now()), PlanFontSize(), true)
 
 	cy += 8
-	bars := dash.Bars
-	if len(bars) == 0 {
-		bars = provider.CursorBarsFromPercents(dash.TotalPercent, dash.ComposerPercent, dash.APIPercent)
-	}
+	bars := BarsForProvider(view.ProviderID, dash, true)
 	for _, bar := range bars {
 		cy = drawBar(img, x, cy, w, bar.Label, bar.Percent)
 		cy += 4

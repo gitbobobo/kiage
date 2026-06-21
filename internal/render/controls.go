@@ -35,8 +35,10 @@ func drawTopRightControls(img *image.RGBA, rightX, y int, view ViewState) {
 	gap := ControlsGap()
 	settingsRight := rightX
 	drawSettingsButton(img, settingsRight, y, view.SettingsActive)
-	metricRight := settingsRight - btnSz - gap
-	drawMetricToggle(img, metricRight, y, view.ChartMetric, view.SupportsCost)
+	if view.Screen != ScreenSummary {
+		metricRight := settingsRight - btnSz - gap
+		drawMetricToggle(img, metricRight, y, view.ChartMetric, view.SupportsCost)
+	}
 	if view.SettingsActive && view.SettingsURL != "" {
 		drawSettingsBubble(img, settingsRight, y+btnSz+6, view.SettingsURL)
 	}

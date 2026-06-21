@@ -11,9 +11,10 @@ import (
 )
 
 type ViewState struct {
+	Screen         Screen
 	ProviderName   string
 	ProviderID     string
-	ChartMetric    string // "token" or "cost"
+	ChartMetric    string // MetricToken or MetricCost
 	SupportsCost   bool
 	Orientation    string // "landscape" or "portrait"
 	PortraitRota   int    // 竖屏旋转：0 正立，2 倒立
