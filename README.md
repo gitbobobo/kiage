@@ -41,20 +41,28 @@ make build-kindle
 chmod +x bin/*.sh bin/kiage
 ```
 
-KUAL 菜单：点击 **Kiage** 启动看板；应用内**长按屏幕 5 秒**退出。
+KUAL 菜单：点击 **Kiage** 启动看板；**双击下方向键**退出应用。
+
+### Kindle 方向键
+
+| 操作 | 动作 |
+|------|------|
+| ↑ 单击 | 切换提供商（Cursor / GLM） |
+| ↑ 双击 | 切换 token / 花费（提供商支持时） |
+| ↓ 单击 | 切换设置服务开/关 |
+| ↓ 双击 | 退出应用 |
 
 Kindle 需安装 [FBInk](https://github.com/NiLuJe/FBInk)（后续版本将打包 fbink 二进制）。
 
 ## 快捷键（浏览器预览）
 
+方向键行为与 Kindle 一致（见上表）。另支持：
+
 | 键 | 动作 |
 |----|------|
-| ↑ | 切换提供商（Cursor / GLM） |
 | Space | 切换折线图 |
 | H | 切换热力图 |
-| T | token/花费 |
 | R | 手动刷新 |
-| S | 设置 |
 
 ## 威胁模型
 
