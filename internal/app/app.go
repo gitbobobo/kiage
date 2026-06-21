@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
 	"net/http"
 	"os"
 	"os/signal"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -45,7 +47,9 @@ type App struct {
 	view        render.ViewState
 	screenSize  render.Size
 	frameSnaps  map[string]frameSnapshot
-	lastPNG     []byte
+	lastPNG           []byte
+	frameBase         *image.RGBA
+	frameBaseProvider string
 	lastErrs    map[string]error
 	syncing     map[string]bool
 	progress    map[string]string
@@ -54,10 +58,14 @@ type App struct {
 	renderMu      sync.Mutex
 	lastTouchTap  time.Time
 	lastMetricTap time.Time
+	portraitRota  atomic.Int32
+	touchMapping  atomic.Value
+	touchQuirkVer atomic.Uint64
 }
 
 type displayNotify struct {
-	urgent bool
+	urgent    bool
+	forceFull bool
 }
 
 func New(roots paths.Roots) (*App, error) {
@@ -152,8 +160,16 @@ func (a *App) frameSize() render.Size {
 
 func (a *App) SetScreenSize(w, h int) {
 	a.mu.Lock()
+	if a.screenSize.Width != w || a.screenSize.Height != h {
+		a.invalidateFrameBaseLocked()
+	}
 	a.screenSize = render.Size{Width: w, Height: h}
 	a.mu.Unlock()
+}
+
+func (a *App) invalidateFrameBaseLocked() {
+	a.frameBase = nil
+	a.frameBaseProvider = ""
 }
 
 func (a *App) View() render.ViewState {
@@ -172,6 +188,7 @@ func (a *App) SetView(fn func(*render.ViewState)) {
 func (a *App) SetViewUrgent(fn func(*render.ViewState)) {
 	a.mu.Lock()
 	fn(&a.view)
+	a.invalidateFrameBaseLocked()
 	a.mu.Unlock()
 	go a.refreshFrameViewOnly(true)
 }
@@ -181,14 +198,14 @@ func (a *App) RefreshFrame() {
 }
 
 func (a *App) refreshFrameViewOnly(urgent bool) {
-	a.refreshFrameOpts(urgent, true)
+	a.refreshFrameOpts(urgent, true, false)
 }
 
 func (a *App) refreshFrame(urgent bool) {
-	a.refreshFrameOpts(urgent, false)
+	a.refreshFrameOpts(urgent, false, false)
 }
 
-func (a *App) refreshFrameOpts(urgent, viewOnly bool) {
+func (a *App) refreshFrameOpts(urgent, viewOnly, forceFull bool) {
 	if urgent {
 		a.renderMu.Lock()
 	} else if !a.renderMu.TryLock() {
@@ -212,6 +229,8 @@ func (a *App) refreshFrameOpts(urgent, viewOnly bool) {
 	snap := a.frameSnaps[providerID]
 	view := a.view
 	prov := a.providers[providerID]
+	cachedBase := a.frameBase
+	cachedBaseProvider := a.frameBaseProvider
 	a.mu.RUnlock()
 
 	if viewOnly && snap.valid {
@@ -251,8 +270,24 @@ func (a *App) refreshFrameOpts(urgent, viewOnly bool) {
 		view.ProviderID = providerID
 		view.SupportsCost = prov.Capabilities().SupportsCost
 	}
+
+	var base *image.RGBA
 	pngStart := time.Now()
-	png, err := render.RenderPNG(dash, line, heat, view, size)
+	if viewOnly && snap.valid && cachedBase != nil && cachedBaseProvider == providerID {
+		base = cachedBase
+	} else {
+		base = render.DrawFrame(dash, line, heat, view, size)
+		a.mu.Lock()
+		if a.activeProviderIDLocked() == providerID {
+			a.frameBase = base
+			a.frameBaseProvider = providerID
+		}
+		a.mu.Unlock()
+	}
+
+	flipRota := a.currentPortraitRota()
+	img := render.PortraitOrient(base, flipRota)
+	png, err := render.EncodePNG(img)
 	pngMs := time.Since(pngStart).Milliseconds()
 	a.mu.Lock()
 	a.lastPNG = png
@@ -260,9 +295,9 @@ func (a *App) refreshFrameOpts(urgent, viewOnly bool) {
 		a.lastErrs[providerID] = err
 	}
 	a.mu.Unlock()
-	log.Info("render frame ok provider=%s urgent=%v viewOnly=%v agg_ms=%d png_ms=%d total_ms=%d err=%v",
-		providerID, urgent, viewOnly, aggMs, pngMs, time.Since(start).Milliseconds(), err)
-	a.notifyDisplay(urgent)
+	log.Info("render frame ok provider=%s urgent=%v viewOnly=%v portrait_rota=%d agg_ms=%d png_ms=%d total_ms=%d err=%v",
+		providerID, urgent, viewOnly, flipRota, aggMs, pngMs, time.Since(start).Milliseconds(), err)
+	a.notifyDisplay(urgent, forceFull)
 }
 
 func (a *App) PNG() []byte {
@@ -277,8 +312,8 @@ func (a *App) LastError() error {
 	return a.lastErrs[a.activeProviderIDLocked()]
 }
 
-func (a *App) notifyDisplay(urgent bool) {
-	n := displayNotify{urgent: urgent}
+func (a *App) notifyDisplay(urgent, forceFull bool) {
+	n := displayNotify{urgent: urgent, forceFull: forceFull}
 	for i := 0; i < 8; i++ {
 		select {
 		case a.displayCh <- n:
@@ -290,9 +325,12 @@ func (a *App) notifyDisplay(urgent bool) {
 			if urgent {
 				old.urgent = true
 			}
+			if forceFull {
+				old.forceFull = true
+			}
 			n = old
 		default:
-			log.Warn("notify display queue full urgent=%v", urgent)
+			log.Warn("notify display queue full urgent=%v forceFull=%v", urgent, forceFull)
 			return
 		}
 	}
@@ -394,6 +432,7 @@ func (a *App) finishSync(id string) {
 		a.frameSnaps[id] = snap
 	}
 	if id == a.activeProviderIDLocked() {
+		a.invalidateFrameBaseLocked()
 		if a.lastErrs[id] == nil {
 			a.view.SyncStatus = "就绪"
 		} else {

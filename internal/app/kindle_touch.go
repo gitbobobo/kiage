@@ -15,6 +15,10 @@ type kindleTouchHandler struct {
 	app *App
 }
 
+func (h *kindleTouchHandler) TouchQuirkVersion() uint64 {
+	return h.app.touchQuirkVer.Load()
+}
+
 func (h *kindleTouchHandler) OnTap(x, y int) {
 	h.app.handleTopTap(x, y)
 }

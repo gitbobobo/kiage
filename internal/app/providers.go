@@ -68,6 +68,7 @@ func (a *App) setActiveProvider(id string) {
 		return
 	}
 	a.activeProviderID = id
+	a.invalidateFrameBaseLocked()
 	if prov, ok := a.providers[id]; ok {
 		a.view.ProviderID = id
 		a.view.ProviderName = prov.DisplayName()

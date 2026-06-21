@@ -26,21 +26,24 @@ func (a *App) RunKindle(ctx context.Context) error {
 	a.mu.RUnlock()
 	fb := display.New(fbBin)
 
-	var touchQuirk input.TouchQuirk
-	if vp, err := display.QueryViewport(fb.Bin); err == nil {
-		a.SetScreenSize(vp.Width, vp.Height)
+	initialRota := input.QueryInitialRota(fb.Bin)
+	a.initPortraitRota(initialRota)
+
+	if vp, err := queryViewportForRota(fb.Bin, initialRota); err == nil {
 		fb.SetViewport(vp)
-		q := vp.TouchQuirkForInput()
-		touchQuirk = input.TouchQuirk{SwapAxes: q.SwapAxes, MirrorX: q.MirrorX, MirrorY: q.MirrorY}
-		log.Info("fbink viewport %dx%d touch panel swap=%v mx=%v my=%v applied swap=%v mx=%v my=%v rota=%d",
+		a.storeTouchMappingForRota(vp, initialRota)
+		q := vp.TouchQuirkForRota(initialRota)
+		log.Info("fbink viewport %dx%d touch panel swap=%v mx=%v my=%v applied swap=%v mx=%v my=%v rota=%d initial=%d",
 			vp.Width, vp.Height,
 			vp.TouchSwapAxes, vp.TouchMirrorX, vp.TouchMirrorY,
-			q.SwapAxes, q.MirrorX, q.MirrorY, vp.CurrentRota)
+			q.SwapAxes, q.MirrorX, q.MirrorY, vp.CurrentRota, initialRota)
 	} else {
 		log.Warn("fbink viewport query failed: %v", err)
 	}
+
 	size := a.frameSize()
-	log.Info("fbink using bin=%q screen=%dx%d orient=%s", fb.Bin, size.Width, size.Height, orient)
+	log.Info("fbink using bin=%q screen=%dx%d orient=%s portrait_rota=%d",
+		fb.Bin, size.Width, size.Height, orient, a.currentPortraitRota())
 
 	touch, err := input.OpenTouchListener()
 	if err != nil {
@@ -51,13 +54,26 @@ func (a *App) RunKindle(ctx context.Context) error {
 		go func() {
 			size := a.frameSize()
 			log.Info("touch listener running screen=%dx%d", size.Width, size.Height)
-			touch.Run(ctx, input.ScreenMapping{
-				Width:  size.Width,
-				Height: size.Height,
-				Quirk:  touchQuirk,
-			}, &kindleTouchHandler{app: a})
+			touch.Run(ctx, a.touchScreenFn(), &kindleTouchHandler{app: a})
 			log.Info("touch listener stopped")
 		}()
+	}
+
+	if os.Getenv("KIAGE_ORIENTATION") == "" {
+		orientListener, err := input.OpenOrientationListener()
+		if err != nil {
+			log.Warn("orientation listener unavailable: %v", err)
+		} else if orientListener != nil {
+			log.Info("orientation listener opened")
+			defer orientListener.Close()
+			go orientListener.Run(ctx, func(rota int) {
+				a.applyRotation(ctx, fb, rota)
+			})
+		} else {
+			log.Info("orientation listener not found (non-Oasis or no accel device)")
+		}
+	} else {
+		log.Info("orientation listener disabled (KIAGE_ORIENTATION set)")
 	}
 
 	fullEvery := display.DefaultFullRefreshEvery
@@ -72,7 +88,7 @@ func (a *App) RunKindle(ctx context.Context) error {
 		flushCount   int
 	)
 
-	pushDisplay := func(urgent bool) {
+	pushDisplay := func(urgent, forceFull bool) {
 		if err := a.LastError(); err != nil {
 			log.Error("render frame: %v", err)
 			return
@@ -83,7 +99,7 @@ func (a *App) RunKindle(ctx context.Context) error {
 			return
 		}
 		hash := sha256.Sum256(png)
-		if firstDone && hash == lastHash && !urgent {
+		if firstDone && hash == lastHash && !urgent && !forceFull {
 			return
 		}
 		lastHash = hash
@@ -99,8 +115,10 @@ func (a *App) RunKindle(ctx context.Context) error {
 		switch {
 		case !firstDone:
 			mode = display.RefreshFirst
+		case forceFull:
+			mode = display.RefreshFull
+			partialCount = 0
 		case urgent:
-			// 交互用 GL16 局部刷（真机 DU 不稳定）
 			mode = display.RefreshPartial
 		default:
 			mode, nextPartial = display.PickRefreshMode(firstDone, partialCount, fullEvery)
@@ -108,7 +126,7 @@ func (a *App) RunKindle(ctx context.Context) error {
 
 		fbStart := time.Now()
 		if err := fb.ShowPNG(path, mode); err != nil {
-			log.Error("fbink show failed mode=%d urgent=%v: %v", mode, urgent, err)
+			log.Error("fbink show failed mode=%d urgent=%v forceFull=%v: %v", mode, urgent, forceFull, err)
 			if urgent && mode == display.RefreshPartial {
 				log.Info("fbink retry urgent as full GC16")
 				if err2 := fb.ShowPNG(path, display.RefreshFull); err2 != nil {
@@ -119,16 +137,17 @@ func (a *App) RunKindle(ctx context.Context) error {
 				return
 			}
 		}
-		firstDone = true
-		if !urgent {
+		if forceFull {
+			partialCount = 0
+		} else if !urgent {
 			partialCount = nextPartial
 		}
+		firstDone = true
 		flushCount++
-		log.Info("fbink show ok mode=%d bytes=%d count=%d partial=%d urgent=%v fb_ms=%d",
-			mode, len(png), flushCount, partialCount, urgent, time.Since(fbStart).Milliseconds())
+		log.Info("fbink show ok mode=%d bytes=%d count=%d partial=%d urgent=%v forceFull=%v portrait_rota=%d fb_ms=%d",
+			mode, len(png), flushCount, partialCount, urgent, forceFull, a.currentPortraitRota(), time.Since(fbStart).Milliseconds())
 	}
 
-	// 刷屏专用协程：pushDisplay 可能阻塞数秒，不可占主循环
 	go func() {
 		for {
 			select {
@@ -136,6 +155,7 @@ func (a *App) RunKindle(ctx context.Context) error {
 				return
 			case n := <-a.displayCh:
 				urgent := n.urgent
+				forceFull := n.forceFull
 			drain:
 				for {
 					select {
@@ -143,11 +163,14 @@ func (a *App) RunKindle(ctx context.Context) error {
 						if n2.urgent {
 							urgent = true
 						}
+						if n2.forceFull {
+							forceFull = true
+						}
 					default:
 						break drain
 					}
 				}
-				pushDisplay(urgent)
+				pushDisplay(urgent, forceFull)
 			}
 		}
 	}()
