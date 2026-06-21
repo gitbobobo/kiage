@@ -12,16 +12,17 @@ import (
 const CurrentVersion = 1
 
 const (
-	MaxCredentialLen        = 8192
-	MaxRefreshIntervalSec   = 86400
+	MaxCredentialLen      = 8192
+	MaxRefreshIntervalSec = 86400
 )
 
 type Config struct {
-	Version            int    `json:"version"`
-	Timezone           string `json:"timezone"`
-	RefreshIntervalSec int    `json:"refresh_interval_sec"`
-	Cursor             Cursor `json:"cursor"`
-	GLM                GLM    `json:"glm"`
+	Version            int     `json:"version"`
+	Timezone           string  `json:"timezone"`
+	RefreshIntervalSec int     `json:"refresh_interval_sec"`
+	Cursor             Cursor  `json:"cursor"`
+	GLM                GLM     `json:"glm"`
+	MiniMax            MiniMax `json:"minimax"`
 }
 
 type Cursor struct {
@@ -29,6 +30,10 @@ type Cursor struct {
 }
 
 type GLM struct {
+	APIKey string `json:"api_key"`
+}
+
+type MiniMax struct {
 	APIKey string `json:"api_key"`
 }
 
@@ -41,6 +46,9 @@ func Default() Config {
 			SessionToken: "",
 		},
 		GLM: GLM{
+			APIKey: "",
+		},
+		MiniMax: MiniMax{
 			APIKey: "",
 		},
 	}
@@ -108,8 +116,14 @@ func (c Config) Validate() error {
 	if c.RefreshIntervalSec > MaxRefreshIntervalSec {
 		return fmt.Errorf("refresh_interval_sec must be <= %d", MaxRefreshIntervalSec)
 	}
-	if len(c.Cursor.SessionToken) > MaxCredentialLen || len(c.GLM.APIKey) > MaxCredentialLen {
-		return errors.New("credential too long")
+	if len(c.Cursor.SessionToken) > MaxCredentialLen {
+		return errors.New("cursor session_token too long")
+	}
+	if len(c.GLM.APIKey) > MaxCredentialLen {
+		return errors.New("glm api_key too long")
+	}
+	if len(c.MiniMax.APIKey) > MaxCredentialLen {
+		return errors.New("minimax api_key too long")
 	}
 	if _, err := c.Location(); err != nil {
 		return err
@@ -118,6 +132,9 @@ func (c Config) Validate() error {
 }
 
 func RedactToken(token string) string {
+	if token == "" {
+		return ""
+	}
 	if len(token) <= 8 {
 		return "****"
 	}
