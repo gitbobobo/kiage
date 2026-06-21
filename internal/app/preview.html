@@ -242,12 +242,14 @@
         toggleSettings();
       } else if (inRect(p.x, p.y, r.metric_toggle)) {
         act('toggle_metric');
-      } else if (inRect(p.x, p.y, r.provider_toggle)) {
-        act('toggle_provider');
       }
     });
 
     document.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        act('toggle_provider');
+      }
       if (e.key === 't' || e.key === 'T') act('toggle_metric');
       if (e.key === 'g' || e.key === 'G') toggleSettings();
       if (e.key === 'r' || e.key === 'R') act('refresh');

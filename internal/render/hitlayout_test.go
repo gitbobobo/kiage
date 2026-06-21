@@ -5,13 +5,12 @@ import "testing"
 func TestKindleTopControlAction(t *testing.T) {
 	t.Setenv("KIAGE_PORTRAIT", "1")
 	size := Size{Width: 1264, Height: 1680}
-	regions := TopControlsHitRegions(size, "Cursor", "token", "cursor")
+	regions := TopControlsHitRegions(size, "Cursor", "token")
 
 	cases := []struct {
 		x, y   int
 		action string
 	}{
-		{regions.ProviderToggle.X + 10, 10, "provider_toggle"},
 		{regions.MetricToggle.X + 10, 10, "metric_toggle"},
 		{regions.Settings.X + 10, 10, "settings"},
 		{regions.Exit.X + 10, 10, "exit"},

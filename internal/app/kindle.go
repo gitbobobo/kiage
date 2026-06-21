@@ -59,6 +59,19 @@ func (a *App) RunKindle(ctx context.Context) error {
 		}()
 	}
 
+	keys, err := input.OpenKeyListener()
+	if err != nil {
+		log.Warn("key input unavailable: %v", err)
+	} else if keys != nil {
+		log.Info("key input opened")
+		defer keys.Close()
+		go func() {
+			log.Info("key listener running")
+			keys.Run(ctx, &kindleKeyHandler{app: a})
+			log.Info("key listener stopped")
+		}()
+	}
+
 	if os.Getenv("KIAGE_ORIENTATION") == "" {
 		orientListener, err := input.OpenOrientationListener()
 		if err != nil {

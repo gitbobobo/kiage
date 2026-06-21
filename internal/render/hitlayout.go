@@ -9,17 +9,16 @@ type HitRect struct {
 }
 
 type TopHitRegions struct {
-	ProviderTitle  HitRect `json:"provider_title"`
-	ProviderToggle HitRect `json:"provider_toggle"`
-	Exit           HitRect `json:"exit"`
-	Settings       HitRect `json:"settings"`
-	MetricToggle   HitRect `json:"metric_toggle"`
+	ProviderTitle HitRect `json:"provider_title"`
+	Exit          HitRect `json:"exit"`
+	Settings      HitRect `json:"settings"`
+	MetricToggle  HitRect `json:"metric_toggle"`
 }
 
 const topTitleY = 16
 
 // TopControlsHitRegions 返回顶部控件的可点击区域
-func TopControlsHitRegions(size Size, providerName, chartMetric, providerID string) TopHitRegions {
+func TopControlsHitRegions(size Size, providerName, chartMetric string) TopHitRegions {
 	w := size.Width - PadX*2
 	rightX := PadX + w
 	btnSz := SettingsBtnSize()
@@ -31,8 +30,6 @@ func TopControlsHitRegions(size Size, providerName, chartMetric, providerID stri
 	}
 	metricW := metricToggleWidth(chartMetric)
 	metricX := settingsX - gap - metricW
-	providerW := providerToggleWidth()
-	providerX := metricX - gap - providerW
 
 	titleW := textWidth(providerName, TitleFontSize())
 	if titleW < 48 {
@@ -47,12 +44,6 @@ func TopControlsHitRegions(size Size, providerName, chartMetric, providerID stri
 			Y: topTitleY,
 			W: titleW + 16,
 			H: TopTitleHitHeight(),
-		},
-		ProviderToggle: HitRect{
-			X: providerX,
-			Y: controlsY,
-			W: providerW,
-			H: MetricToggleHeight(),
 		},
 		Exit: HitRect{
 			X: exitX,
@@ -89,7 +80,7 @@ func (r HitRect) ContainsPadAsymmetric(x, y, padL, padT, padR, padB int) bool {
 }
 
 // HitTopRightBar 按屏幕比例划分右上角触控区（网页预览兜底）。
-// 从右到左：退出 | 设置 | Token/Cost | Cursor/GLM
+// 从右到左：退出 | 设置 | Token/Cost
 func HitTopRightBar(size Size, x, y int) string {
 	barH := 64
 	if KindleUI() {
@@ -99,24 +90,22 @@ func HitTopRightBar(size Size, x, y int) string {
 	if y < controlsY || y >= controlsY+barH {
 		return ""
 	}
-	left := size.Width * 42 / 100
+	left := size.Width * 38 / 100
 	if !KindleUI() {
-		left = size.Width * 45 / 100
+		left = size.Width * 40 / 100
 	}
 	if x < left {
 		return ""
 	}
 	span := size.Width - left
 	rel := x - left
-	quarter := span / 4
+	third := span / 3
 	switch {
-	case rel >= 3*quarter:
+	case rel >= 2*third:
 		return "exit"
-	case rel >= 2*quarter:
+	case rel >= third:
 		return "settings"
-	case rel >= quarter:
-		return "metric_toggle"
 	default:
-		return "provider_toggle"
+		return "metric_toggle"
 	}
 }

@@ -3,7 +3,7 @@ package render
 // KindleControlBarYMax 顶部控件行在 Y 轴上的可接受范围（仅校验 X 列）。
 const KindleControlBarYMax = 120
 
-// KindleTopControlAction 根据 X 列判断右上角按钮（Provider | Token/Cost | 设置 | 退出）。
+// KindleTopControlAction 根据 X 列判断右上角按钮（Token/Cost | 设置 | 退出）。
 func KindleTopControlAction(x, y int, regions TopHitRegions) string {
 	if y < 0 || y >= KindleControlBarYMax {
 		return ""
@@ -17,9 +17,6 @@ func KindleTopControlAction(x, y int, regions TopHitRegions) string {
 	}
 	if x >= regions.MetricToggle.X-padX && x < regions.MetricToggle.X+regions.MetricToggle.W+padX {
 		return "metric_toggle"
-	}
-	if x >= regions.ProviderToggle.X-padX && x < regions.ProviderToggle.X+regions.ProviderToggle.W+padX {
-		return "provider_toggle"
 	}
 	return ""
 }

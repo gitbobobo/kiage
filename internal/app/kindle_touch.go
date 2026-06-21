@@ -23,6 +23,18 @@ func (h *kindleTouchHandler) OnTap(x, y int) {
 	h.app.handleTopTap(x, y)
 }
 
+type kindleKeyHandler struct {
+	app *App
+}
+
+func (h *kindleKeyHandler) PortraitRota() int {
+	return h.app.currentPortraitRota()
+}
+
+func (h *kindleKeyHandler) OnScreenUp() {
+	go h.app.toggleProvider()
+}
+
 func (a *App) handleTopTap(x, y int) {
 	a.mu.Lock()
 	if time.Since(a.lastTouchTap) < kindleTouchDebounce {
@@ -38,7 +50,7 @@ func (a *App) handleTopTap(x, y int) {
 	a.mu.Unlock()
 
 	size := a.frameSize()
-	regions := render.TopControlsHitRegions(size, name, metric, providerID)
+	regions := render.TopControlsHitRegions(size, name, metric)
 
 	action := ""
 	if regions.ProviderTitle.ContainsPadAsymmetric(x, y, 12, 12, 12, 48) {
@@ -66,8 +78,6 @@ func (a *App) handleTopTap(x, y int) {
 				v.ChartMetric = "token"
 			}
 		})
-	case "provider_toggle":
-		a.toggleProvider()
 	case "settings":
 		go func() {
 			if err := a.ToggleSettingsServer(); err != nil {
