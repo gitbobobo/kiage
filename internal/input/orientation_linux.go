@@ -28,14 +28,14 @@ const (
 	oasis23LandscapeR   = 18
 
 	// Oasis 1 ABS_PRESSURE 方向值
-	oasis1PortraitUp         = 19
-	oasis1PortraitDown       = 20
-	oasis1Landscape          = 21
-	oasis1LandscapeRotated   = 22
-	oasis1PortraitLeft       = 15
-	oasis1PortraitRotatedL   = 16
-	oasis1PortraitRight      = 17
-	oasis1PortraitRotatedR   = 18
+	oasis1PortraitUp       = 19
+	oasis1PortraitDown     = 20
+	oasis1Landscape        = 21
+	oasis1LandscapeRotated = 22
+	oasis1PortraitLeft     = 15
+	oasis1PortraitRotatedL = 16
+	oasis1PortraitRight    = 17
+	oasis1PortraitRotatedR = 18
 )
 
 type gyroGeneration int
@@ -56,16 +56,21 @@ type OrientationListener struct {
 func OpenOrientationListener() (*OrientationListener, error) {
 	touchDev := touchDevicePath()
 	accel := findAccelDevice(touchDev)
+	l := &OrientationListener{}
 	if accel.path == "" {
-		return nil, nil
+		log.Warn("orientation accel not found, rotation events disabled")
+		return l, nil
 	}
 	f, err := os.Open(accel.path)
 	if err != nil {
 		return nil, fmt.Errorf("open accel %s: %w", accel.path, err)
 	}
 	gen := detectGyroGeneration(accel.path)
+	l.dev = accel.path
+	l.f = f
+	l.gen = gen
 	log.Info("orientation device %s name=%q gen=%d", accel.path, accel.name, gen)
-	return &OrientationListener{dev: accel.path, f: f, gen: gen}, nil
+	return l, nil
 }
 
 func detectGyroGeneration(dev string) gyroGeneration {
@@ -101,6 +106,26 @@ func (l *OrientationListener) Close() error {
 		return nil
 	}
 	return l.f.Close()
+}
+
+// LipcPortraitRota 读取 LIPC 竖屏方向（全屏模式下须短暂恢复 awesome）。
+func LipcPortraitRota() (int, bool) {
+	return lipcPortraitRotaReliable()
+}
+
+func lipcPortraitRotaReliable() (int, bool) {
+	return rotaFromLIPCCode(queryAccelerometerLIPC())
+}
+
+func rotaFromLIPCCode(code string) (int, bool) {
+	switch code {
+	case "U", "V":
+		return 0, true
+	case "D":
+		return 2, true
+	default:
+		return 0, false
+	}
 }
 
 func (l *OrientationListener) Run(ctx context.Context, onRota func(rota int)) {

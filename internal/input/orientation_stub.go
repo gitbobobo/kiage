@@ -17,3 +17,7 @@ func (l *OrientationListener) Run(ctx context.Context, onRota func(rota int)) {}
 func QueryInitialRota(fbinkBin string) int {
 	return 0
 }
+
+func LipcPortraitRota() (int, bool) {
+	return 0, false
+}

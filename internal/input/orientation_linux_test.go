@@ -2,7 +2,10 @@
 
 package input
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 const sampleInputDevices = `
 I: Bus=0019 Vendor=0001 Product=0001 Version=0001
@@ -45,33 +48,62 @@ func TestParseInputDevices(t *testing.T) {
 
 func TestFindAccelDevicePathFromSample(t *testing.T) {
 	blocks := parseInputDevices(sampleInputDevices)
-	var bestNamed struct {
-		path string
-		name string
-		num  int
+	got := pickBestOrientationInput(blocks, nil)
+	if got.path != "/dev/input/event7" || got.name != "bma2x2" {
+		t.Fatalf("picked=%q name=%q want event7 bma2x2", got.path, got.name)
 	}
+}
+
+func TestFindOrientationInputPrefersInterrupt(t *testing.T) {
+	const devices = `
+I: Bus=0019 Vendor=0000 Product=0000 Version=0000
+N: Name="bma2x2"
+H: Handlers=event6 
+B: EV=10000d
+
+I: Bus=0019 Vendor=0000 Product=0000 Version=0000
+N: Name="bma_interrupt"
+H: Handlers=event7 
+B: EV=10000d
+`
+	blocks := parseInputDevices(devices)
+	got := pickBestOrientationInput(blocks, nil)
+	if got.path != "/dev/input/event7" || got.name != "bma_interrupt" {
+		t.Fatalf("picked=%q name=%q want event7 bma_interrupt", got.path, got.name)
+	}
+}
+
+func pickBestOrientationInput(blocks []inputDeviceBlock, excluded map[string]struct{}) accelDevice {
+	var best accelDevice
+	bestNum := -1
+	bestRank := -1
 	for _, b := range blocks {
 		if !blockHasAbsEV(b) {
 			continue
 		}
 		path := eventPathFromHandlers(b.handlers)
-		if path == "" || isExcludedInputName(b.name) {
+		if path == "" {
 			continue
 		}
-		if isNamedAccelDevice(b.name) {
-			num := inputEventNum(path)
-			if num > bestNamed.num {
-				bestNamed = struct {
-					path string
-					name string
-					num  int
-				}{path, b.name, num}
+		if excluded != nil {
+			if _, skip := excluded[path]; skip {
+				continue
 			}
 		}
+		if isExcludedInputName(b.name) {
+			continue
+		}
+		if !isNamedAccelDevice(b.name) {
+			continue
+		}
+		num := inputEventNum(path)
+		if betterOrientationInput(b.name, num, best.name, bestNum, bestRank) {
+			bestNum = num
+			bestRank = orientationInputRank(b.name)
+			best = accelDevice{path: path, name: b.name}
+		}
 	}
-	if bestNamed.path != "/dev/input/event7" || bestNamed.name != "bma2x2" {
-		t.Fatalf("picked=%q name=%q want event7 bma2x2", bestNamed.path, bestNamed.name)
-	}
+	return best
 }
 
 func TestMapAbsGyroValueOasis23(t *testing.T) {
