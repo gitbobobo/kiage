@@ -14,6 +14,7 @@ type Dashboard struct {
 	PlanName        string
 	ResetAt         time.Time
 	ResetDaysLeft   int
+	MembershipType  string
 	Bars            []provider.QuotaBar
 	TotalPercent    float64
 	ComposerPercent float64
@@ -79,6 +80,7 @@ func (s *Service) Build(ctx context.Context, providerID string) (Dashboard, erro
 	}
 	if ok {
 		dash.PlanName = sum.PlanName
+		dash.MembershipType = sum.MembershipType
 		dash.ResetAt = sum.ResetAt
 		dash.Bars = sum.Bars
 		dash.TotalPercent = sum.TotalPercent
