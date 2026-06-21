@@ -152,6 +152,7 @@ func (a *App) handleConfigAPI(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"token_hint":           config.RedactToken(cfg.Cursor.SessionToken),
 			"glm_key_hint":         config.RedactToken(cfg.GLM.APIKey),
+			"minimax_key_hint":     config.RedactToken(cfg.MiniMax.APIKey),
 			"timezone":             cfg.Timezone,
 			"refresh_interval_sec": cfg.RefreshIntervalSec,
 		})
@@ -159,6 +160,7 @@ func (a *App) handleConfigAPI(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			SessionToken       string `json:"session_token"`
 			GLMAPIKey          string `json:"glm_api_key"`
+			MiniMaxAPIKey      string `json:"minimax_api_key"`
 			Timezone           string `json:"timezone"`
 			RefreshIntervalSec int    `json:"refresh_interval_sec"`
 		}
@@ -173,6 +175,9 @@ func (a *App) handleConfigAPI(w http.ResponseWriter, r *http.Request) {
 		}
 		if body.GLMAPIKey != "" {
 			cfg.GLM.APIKey = body.GLMAPIKey
+		}
+		if body.MiniMaxAPIKey != "" {
+			cfg.MiniMax.APIKey = body.MiniMaxAPIKey
 		}
 		if body.Timezone != "" {
 			cfg.Timezone = body.Timezone
@@ -211,6 +216,7 @@ func (a *App) handleConfigAPI(w http.ResponseWriter, r *http.Request) {
 			"ok":                   true,
 			"token_hint":           config.RedactToken(cfg.Cursor.SessionToken),
 			"glm_key_hint":         config.RedactToken(cfg.GLM.APIKey),
+			"minimax_key_hint":     config.RedactToken(cfg.MiniMax.APIKey),
 			"timezone":             cfg.Timezone,
 			"refresh_interval_sec": cfg.RefreshIntervalSec,
 		})

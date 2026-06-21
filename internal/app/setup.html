@@ -41,6 +41,11 @@
     <p class="hint" id="glmHint">当前：未配置</p>
   </div>
   <div class="field">
+    <label for="minimaxKey">MiniMax API Key</label>
+    <input id="minimaxKey" type="password" autocomplete="off" placeholder="MiniMax Subscription Key（sk-cp-...）" />
+    <p class="hint" id="minimaxHint">当前：未配置</p>
+  </div>
+  <div class="field">
     <label for="tz">时区</label>
     <select id="tz">
       <option value="Asia/Shanghai">Asia/Shanghai</option>
@@ -64,6 +69,7 @@
       const d = await r.json();
       document.getElementById('tokenHint').textContent = '当前：' + (d.token_hint || '未配置');
       document.getElementById('glmHint').textContent = '当前：' + (d.glm_key_hint || '未配置');
+      document.getElementById('minimaxHint').textContent = '当前：' + (d.minimax_key_hint || '未配置');
       document.getElementById('tz').value = d.timezone || 'Asia/Shanghai';
       document.getElementById('interval').value = d.refresh_interval_sec || 600;
     }
@@ -78,6 +84,7 @@
           body: JSON.stringify({
             session_token: document.getElementById('token').value.trim(),
             glm_api_key: document.getElementById('glmKey').value.trim(),
+            minimax_api_key: document.getElementById('minimaxKey').value.trim(),
             timezone: document.getElementById('tz').value,
             refresh_interval_sec: parseInt(document.getElementById('interval').value, 10) || 600,
           }),
@@ -86,8 +93,10 @@
         if (!r.ok) throw new Error(d.error || '保存失败');
         document.getElementById('token').value = '';
         document.getElementById('glmKey').value = '';
+        document.getElementById('minimaxKey').value = '';
         document.getElementById('tokenHint').textContent = '当前：' + (d.token_hint || '未配置');
         document.getElementById('glmHint').textContent = '当前：' + (d.glm_key_hint || '未配置');
+        document.getElementById('minimaxHint').textContent = '当前：' + (d.minimax_key_hint || '未配置');
         showMsg('已保存，看板将自动使用新配置', true);
       } catch (e) {
         showMsg(e.message || String(e), false);
