@@ -93,7 +93,7 @@ func (a *App) applyRotation(_ context.Context, fb *display.FBInk, wantRota int) 
 	a.portraitRota.Store(int32(wantRota))
 	a.mu.Lock()
 	a.view.PortraitRota = wantRota
-	a.frameBase = nil
+	a.invalidateFrameBaseLocked()
 	a.mu.Unlock()
 
 	q := vp.TouchQuirkForRota(wantRota)
