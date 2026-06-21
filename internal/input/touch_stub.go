@@ -13,4 +13,4 @@ func OpenTouchListener() (*TouchListener, error) {
 
 func (l *TouchListener) Close() error { return nil }
 
-func (l *TouchListener) Run(ctx context.Context, screen ScreenMapping, h Handler) {}
+func (l *TouchListener) Run(ctx context.Context, screenFn func() ScreenMapping, h Handler) {}

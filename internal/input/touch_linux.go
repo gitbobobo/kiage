@@ -211,20 +211,22 @@ func (l *TouchListener) Close() error {
 	return l.f.Close()
 }
 
-func (l *TouchListener) Run(ctx context.Context, screen ScreenMapping, h Handler) {
-	if l == nil || l.f == nil || h == nil {
+func (l *TouchListener) Run(ctx context.Context, screenFn func() ScreenMapping, h Handler) {
+	if l == nil || l.f == nil || h == nil || screenFn == nil {
 		return
 	}
 	bounds := l.bounds
+	qv, trackQuirk := h.(QuirkVersionHandler)
 
 	var (
-		active      bool
-		fired       bool
-		seenX       bool
-		seenY       bool
-		start       time.Time
-		x, y        int
-		buf         = make([]byte, inputEventSize)
+		active     bool
+		fired      bool
+		seenX      bool
+		seenY      bool
+		start      time.Time
+		tapVersion uint64
+		x, y       int
+		buf        = make([]byte, inputEventSize)
 	)
 
 	beginTouch := func() {
@@ -234,6 +236,9 @@ func (l *TouchListener) Run(ctx context.Context, screen ScreenMapping, h Handler
 		active = true
 		fired = false
 		start = time.Now()
+		if trackQuirk {
+			tapVersion = qv.TouchQuirkVersion()
+		}
 	}
 
 	fireTap := func() {
@@ -246,6 +251,11 @@ func (l *TouchListener) Run(ctx context.Context, screen ScreenMapping, h Handler
 			seenX = false
 			seenY = false
 		}()
+
+		if trackQuirk && qv.TouchQuirkVersion() != tapVersion {
+			log.Info("touch tap ignored quirk changed during tap")
+			return
+		}
 
 		elapsed := time.Since(start)
 		if elapsed < tapFlickerMin {
@@ -260,6 +270,7 @@ func (l *TouchListener) Run(ctx context.Context, screen ScreenMapping, h Handler
 			log.Info("touch tap ignored incomplete coords seenX=%v seenY=%v", seenX, seenY)
 			return
 		}
+		screen := screenFn()
 		px, py := MapTouch(x, y, bounds, screen)
 		log.Info("touch raw=(%d,%d) mapped=(%d,%d) quirk swap=%v mx=%v my=%v",
 			x, y, px, py, screen.Quirk.SwapAxes, screen.Quirk.MirrorX, screen.Quirk.MirrorY)

@@ -30,6 +30,11 @@ type Handler interface {
 	OnTap(x, y int)
 }
 
+type QuirkVersionHandler interface {
+	Handler
+	TouchQuirkVersion() uint64
+}
+
 // MapTouch 将设备触摸坐标映射为 PNG 像素坐标。
 // Kindle 上触摸事件常在视口坐标系（1264×1680）内，与 ABS max（1072×1448）不一致。
 func MapTouch(tx, ty int, bounds TouchBounds, screen ScreenMapping) (int, int) {
