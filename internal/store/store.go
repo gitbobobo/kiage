@@ -237,7 +237,10 @@ type SummaryRow struct {
 }
 
 func (s *Store) SaveSummary(ctx context.Context, providerID string, sum provider.Summary) error {
-	bars := provider.LegacyBarsFromSummary(sum)
+	bars := sum.Bars
+	if len(bars) == 0 && providerID == provider.CursorID {
+		bars = provider.LegacyBarsFromSummary(sum)
+	}
 	barsJSON, err := json.Marshal(bars)
 	if err != nil {
 		return err
@@ -291,7 +294,7 @@ func (s *Store) LoadSummary(ctx context.Context, providerID string) (SummaryRow,
 	if barsJSON.Valid && barsJSON.String != "" {
 		_ = json.Unmarshal([]byte(barsJSON.String), &row.Bars)
 	}
-	if len(row.Bars) == 0 {
+	if len(row.Bars) == 0 && providerID == provider.CursorID {
 		row.Bars = provider.CursorBarsFromPercents(row.TotalPercent, row.ComposerPercent, row.APIPercent)
 	}
 	return row, true, nil
