@@ -16,9 +16,6 @@ import (
 //go:embed icons/settings.svg
 var settingsIconSVG string
 
-//go:embed icons/exit.svg
-var exitIconSVG string
-
 type svgIconCache struct {
 	mu    sync.Mutex
 	items map[string]*image.RGBA
@@ -78,12 +75,6 @@ func blitIcon(dst *image.RGBA, x, y int, icon *image.RGBA) {
 
 func drawSettingsSVGIcon(dst *image.RGBA, x, y, size int, c color.Color) {
 	svg := colorizeSVG(settingsIconSVG, c)
-	icon := iconCache.get(svg, size)
-	blitIcon(dst, x, y, icon)
-}
-
-func drawExitSVGIcon(dst *image.RGBA, x, y, size int, c color.Color) {
-	svg := colorizeSVG(exitIconSVG, c)
 	icon := iconCache.get(svg, size)
 	blitIcon(dst, x, y, icon)
 }

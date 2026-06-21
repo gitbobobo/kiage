@@ -33,23 +33,13 @@ func metricToggleWidth(metric string) int {
 func drawTopRightControls(img *image.RGBA, rightX, y int, view ViewState) {
 	btnSz := SettingsBtnSize()
 	gap := ControlsGap()
-	drawExitButton(img, rightX, y)
-	settingsRight := rightX - btnSz - gap
+	settingsRight := rightX
 	drawSettingsButton(img, settingsRight, y, view.SettingsActive)
 	metricRight := settingsRight - btnSz - gap
 	drawMetricToggle(img, metricRight, y, view.ChartMetric, view.SupportsCost)
 	if view.SettingsActive && view.SettingsURL != "" {
 		drawSettingsBubble(img, settingsRight, y+btnSz+6, view.SettingsURL)
 	}
-}
-
-func drawExitButton(img *image.RGBA, rightX, y int) {
-	btnSz := SettingsBtnSize()
-	iconSz := SettingsIconSize()
-	x := rightX - btnSz
-	drawRect(img, x, y, btnSz, btnSz, color.Gray{Y: 235})
-	pad := (btnSz - iconSz) / 2
-	drawExitSVGIcon(img, x+pad, y+pad, iconSz, color.Black)
 }
 
 func drawSettingsButton(img *image.RGBA, rightX, y int, active bool) {

@@ -499,7 +499,7 @@ func (a *App) RunDev(ctx context.Context, addr string) error {
 		name := a.view.ProviderName
 		a.mu.RUnlock()
 		size := a.frameSize()
-		regions := render.TopControlsHitRegions(size, name, metric)
+		regions := render.TopControlsHitRegions(name)
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"width":           size.Width,
 			"height":          size.Height,

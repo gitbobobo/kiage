@@ -2,24 +2,16 @@ package render
 
 import "testing"
 
-func TestKindleTopControlAction(t *testing.T) {
+func TestTopControlsHitRegionsProviderTitle(t *testing.T) {
 	t.Setenv("KIAGE_PORTRAIT", "1")
-	size := Size{Width: 1264, Height: 1680}
-	regions := TopControlsHitRegions(size, "Cursor", "token")
+	regions := TopControlsHitRegions("Cursor")
 
-	cases := []struct {
-		x, y   int
-		action string
-	}{
-		{regions.MetricToggle.X + 10, 10, "metric_toggle"},
-		{regions.Settings.X + 10, 10, "settings"},
-		{regions.Exit.X + 10, 10, "exit"},
-		{500, 150, ""},
+	cx := regions.ProviderTitle.X + regions.ProviderTitle.W/2
+	cy := regions.ProviderTitle.Y + regions.ProviderTitle.H/2
+	if !regions.ProviderTitle.Contains(cx, cy) {
+		t.Fatal("provider title should contain center")
 	}
-	for _, c := range cases {
-		got := KindleTopControlAction(c.x, c.y, regions)
-		if got != c.action {
-			t.Fatalf("(%d,%d) got %q want %q", c.x, c.y, got, c.action)
-		}
+	if regions.ProviderTitle.Contains(900, 10) {
+		t.Fatal("top-right should not hit provider title")
 	}
 }
