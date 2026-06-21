@@ -27,9 +27,10 @@ func (a *App) RunKindle(ctx context.Context) error {
 	fb := display.New(fbBin)
 
 	initialRota := input.QueryInitialRota(fb.Bin)
-	a.initPortraitRota(initialRota)
 
+	initFbRota := 0
 	if vp, err := queryViewportForRota(fb.Bin, initialRota); err == nil {
+		initFbRota = vp.CurrentRota
 		fb.SetViewport(vp)
 		a.storeTouchMappingForRota(vp, initialRota)
 		q := vp.TouchQuirkForRota(initialRota)
@@ -40,6 +41,7 @@ func (a *App) RunKindle(ctx context.Context) error {
 	} else {
 		log.Warn("fbink viewport query failed: %v", err)
 	}
+	a.initPortraitRota(initialRota, initFbRota)
 
 	size := a.frameSize()
 	log.Info("fbink using bin=%q screen=%dx%d orient=%s portrait_rota=%d",
@@ -199,6 +201,7 @@ func (a *App) RunKindle(ctx context.Context) error {
 			return nil
 		case <-a.exitCh:
 			log.Info("kindle loop exit: user exit")
+			a.shutdownKindleInputs()
 			return nil
 		}
 	}

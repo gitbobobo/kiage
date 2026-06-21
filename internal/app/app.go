@@ -57,8 +57,9 @@ type App struct {
 	displayCh     chan displayNotify
 	renderMu      sync.Mutex
 	lastTouchTap  time.Time
-	lastMetricTap time.Time
-	portraitRota  atomic.Int32
+	portraitRota  atomic.Int32 // 输入：随加速度计变化（触摸/按键）
+	baselineRota  atomic.Int32 // 启动时物理握持方向（0/2）
+	fbRota        atomic.Int32 // fbink currentRota；0 时常为陈旧 WM 状态
 	touchMapping  atomic.Value
 	touchQuirkVer atomic.Uint64
 	kindleReady   atomic.Bool
@@ -286,7 +287,9 @@ func (a *App) refreshFrameOpts(urgent, viewOnly, forceFull bool) {
 		a.mu.Unlock()
 	}
 
-	flipRota := a.currentPortraitRota()
+	inputRota := a.currentPortraitRota()
+	baseline := int(a.baselineRota.Load())
+	flipRota := render.PortraitRotaForDisplay(inputRota, 0, baseline)
 	img := render.PortraitOrient(base, flipRota)
 	png, err := render.EncodePNG(img)
 	pngMs := time.Since(pngStart).Milliseconds()
@@ -296,8 +299,8 @@ func (a *App) refreshFrameOpts(urgent, viewOnly, forceFull bool) {
 		a.lastErrs[providerID] = err
 	}
 	a.mu.Unlock()
-	log.Info("render frame ok provider=%s urgent=%v viewOnly=%v portrait_rota=%d agg_ms=%d png_ms=%d total_ms=%d err=%v",
-		providerID, urgent, viewOnly, flipRota, aggMs, pngMs, time.Since(start).Milliseconds(), err)
+	log.Info("render frame ok provider=%s urgent=%v viewOnly=%v display_rota=%d input_rota=%d fb_rota=%d baseline=%d agg_ms=%d png_ms=%d total_ms=%d err=%v",
+		providerID, urgent, viewOnly, flipRota, inputRota, int(a.fbRota.Load()), baseline, aggMs, pngMs, time.Since(start).Milliseconds(), err)
 	a.notifyDisplay(urgent, forceFull)
 }
 

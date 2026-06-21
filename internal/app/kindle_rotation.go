@@ -2,18 +2,20 @@ package app
 
 import (
 	"context"
-	"time"
 
 	"github.com/godbobo/kiage/internal/display"
 	"github.com/godbobo/kiage/internal/input"
 	"github.com/godbobo/kiage/internal/log"
+	"github.com/godbobo/kiage/internal/render"
 )
 
-func (a *App) initPortraitRota(rota int) {
+func (a *App) initPortraitRota(rota int, fbRota int) {
 	if rota != 2 {
 		rota = 0
 	}
 	a.portraitRota.Store(int32(rota))
+	a.baselineRota.Store(int32(rota))
+	a.fbRota.Store(int32(fbRota))
 	a.mu.Lock()
 	a.view.PortraitRota = rota
 	a.mu.Unlock()
@@ -21,6 +23,12 @@ func (a *App) initPortraitRota(rota int) {
 
 func (a *App) currentPortraitRota() int {
 	return int(a.portraitRota.Load())
+}
+
+func (a *App) displayPortraitRota() int {
+	input := a.currentPortraitRota()
+	baseline := int(a.baselineRota.Load())
+	return render.PortraitRotaForDisplay(input, 0, baseline)
 }
 
 func (a *App) markKindleReady() {
@@ -49,34 +57,8 @@ func (a *App) touchScreenFn() func() input.ScreenMapping {
 	}
 }
 
-// queryViewportForRota 等待 fbink 报告目标 rota；超时仍返回最近一次有效 viewport。
-func queryViewportForRota(bin string, wantRota int) (display.Viewport, error) {
-	const (
-		attempts = 25
-		interval = 150 * time.Millisecond
-	)
-	var last display.Viewport
-	var lastErr error
-	for i := 0; i < attempts; i++ {
-		if i > 0 {
-			time.Sleep(interval)
-		}
-		vp, err := display.QueryViewport(bin)
-		if err != nil {
-			lastErr = err
-			continue
-		}
-		last = vp
-		if vp.CurrentRota == wantRota {
-			return vp, nil
-		}
-	}
-	if last.Width > 0 {
-		return last, nil
-	}
-	if lastErr != nil {
-		return display.Viewport{}, lastErr
-	}
+// queryViewportForRota 获取 fbink 视口；FBINK_NO_SW_ROTA 下 fb currentRota 可能与物理朝向不一致。
+func queryViewportForRota(bin string, _ int) (display.Viewport, error) {
 	return display.QueryViewport(bin)
 }
 
@@ -101,27 +83,21 @@ func (a *App) applyRotation(_ context.Context, fb *display.FBInk, wantRota int) 
 		return
 	}
 	if vp.CurrentRota != wantRota {
-		log.Info("orientation fb_rota=%d portrait=%d (use portrait for flip/touch)", vp.CurrentRota, wantRota)
+		log.Info("orientation fb_rota=%d accel=%d", vp.CurrentRota, wantRota)
 	}
 
 	old := a.currentPortraitRota()
 	fb.SetViewport(vp)
+	a.fbRota.Store(int32(vp.CurrentRota))
 	a.storeTouchMappingForRota(vp, wantRota)
 	a.portraitRota.Store(int32(wantRota))
 	a.mu.Lock()
 	a.view.PortraitRota = wantRota
+	a.frameBase = nil
 	a.mu.Unlock()
 
 	q := vp.TouchQuirkForRota(wantRota)
-	a.mu.RLock()
-	providerID := a.activeProviderIDLocked()
-	useFast := a.frameSnaps[providerID].valid && a.frameBase != nil && a.frameBaseProvider == providerID
-	a.mu.RUnlock()
-	log.Info("orientation applied %d->%d viewport=%dx%d fb_rota=%d quirk=%+v fast=%v",
-		old, wantRota, vp.Width, vp.Height, vp.CurrentRota, q, useFast)
-	if useFast {
-		a.refreshFrameOpts(true, true, true)
-	} else {
-		a.refreshFrameOpts(true, false, true)
-	}
+	log.Info("orientation input %d->%d viewport=%dx%d fb_rota=%d display_rota=%d baseline=%d quirk=%+v",
+		old, wantRota, vp.Width, vp.Height, vp.CurrentRota, a.displayPortraitRota(), int(a.baselineRota.Load()), q)
+	a.refreshFrameOpts(true, false, true)
 }
