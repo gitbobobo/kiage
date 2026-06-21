@@ -200,6 +200,8 @@ lipc-probe -a -v
 | **FBInk** | 功能完整：文字、图片、局部刷新，推荐 |
 | GTK+2 | 可做 GUI，见 [GTK 教程](https://kindlemodding.org/kindle-dev/gtk-tutorial/setting-up.html) |
 
+竖屏旋转（Oasis）：kiage 通过加速度计 `/dev/input` 事件监听竖屏正立/倒立切换；`FBINK_NO_SW_ROTA=1` 下 framebuffer 已随设备旋转，渲染时在正立（rota=0）翻转 PNG 180° 以匹配屏幕；触摸映射由 `fbink -e` + quirk 同步。注意 fbink CLI 的 `-r` 是文本右对齐，不可用于旋转。
+
 ### 文件系统
 
 - 用户数据：`/mnt/us/`（USB 可见，可读写）
