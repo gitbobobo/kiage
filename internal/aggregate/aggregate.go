@@ -50,6 +50,17 @@ type HeatmapStats struct {
 	Weeks      int
 }
 
+type ProviderSummary struct {
+	ProviderID  string
+	DisplayName string
+	Configured  bool
+	Dashboard
+}
+
+type Overview struct {
+	Providers []ProviderSummary
+}
+
 type Service struct {
 	store *store.Store
 	loc   *time.Location
