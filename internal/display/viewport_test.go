@@ -11,6 +11,18 @@ func TestTouchQuirkRota2(t *testing.T) {
 	}
 }
 
+func TestTouchQuirkForRota(t *testing.T) {
+	vp := Viewport{TouchMirrorX: false, TouchMirrorY: false}
+	q0 := vp.TouchQuirkForRota(0)
+	if q0.MirrorX || q0.MirrorY {
+		t.Fatalf("rota=0 got mx=%v my=%v", q0.MirrorX, q0.MirrorY)
+	}
+	q2 := vp.TouchQuirkForRota(2)
+	if !q2.MirrorX || !q2.MirrorY {
+		t.Fatalf("rota=2 got mx=%v my=%v want both true", q2.MirrorX, q2.MirrorY)
+	}
+}
+
 func TestParseViewportEval(t *testing.T) {
 	s := "FBINK_VERSION='1.25.0';viewWidth=1072;viewHeight=1448;screenWidth=1072;screenHeight=1448;touchSwapAxes=1;touchMirrorX=0;touchMirrorY=1;currentRota=0"
 	vp := parseViewportEval(s)

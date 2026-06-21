@@ -28,12 +28,17 @@ type TouchQuirk struct {
 // TouchQuirkForInput 按当前旋转调整触摸变换标志（与 FBInk finger_trace 一致）。
 // fbink -e 的 touchMirror* 为面板原生方向；currentRota 表示相对该方向的视口旋转，须叠加修正。
 func (vp Viewport) TouchQuirkForInput() TouchQuirk {
+	return vp.TouchQuirkForRota(vp.CurrentRota)
+}
+
+// TouchQuirkForRota 按指定旋转角计算触摸变换。
+func (vp Viewport) TouchQuirkForRota(rota int) TouchQuirk {
 	q := TouchQuirk{
 		SwapAxes: vp.TouchSwapAxes,
 		MirrorX:  vp.TouchMirrorX,
 		MirrorY:  vp.TouchMirrorY,
 	}
-	return applyRotationQuirk(q, vp.CurrentRota)
+	return applyRotationQuirk(q, rota)
 }
 
 // applyRotationQuirk 与 FBInk finger_trace 的 canonical rotation 处理一致。

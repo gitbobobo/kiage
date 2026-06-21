@@ -24,7 +24,6 @@ const DefaultFullRefreshEvery = 6
 
 type FBInk struct {
 	Bin    string
-	Rotate int
 	Width  int
 	Height int
 }
@@ -70,9 +69,6 @@ func (f *FBInk) ShowPNG(path string, mode RefreshMode) error {
 	default:
 		// KOReader 在 Kindle 上 partial/ui 使用 GL16（无闪烁）
 		args = append(args, "-W", "GL16")
-	}
-	if f.Rotate > 0 {
-		args = append(args, "-r", fmt.Sprintf("%d", f.Rotate))
 	}
 	cmd := exec.Command(f.Bin, args...)
 	var stderr bytes.Buffer
