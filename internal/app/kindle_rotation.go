@@ -23,6 +23,10 @@ func (a *App) currentPortraitRota() int {
 	return int(a.portraitRota.Load())
 }
 
+func (a *App) markKindleReady() {
+	a.kindleReady.Store(true)
+}
+
 func (a *App) storeTouchMappingForRota(vp display.Viewport, rota int) {
 	q := vp.TouchQuirkForRota(rota)
 	m := input.ScreenMapping{
@@ -76,14 +80,16 @@ func queryViewportForRota(bin string, wantRota int) (display.Viewport, error) {
 	return display.QueryViewport(bin)
 }
 
-func (a *App) applyRotation(ctx context.Context, fb *display.FBInk, wantRota int) {
+func (a *App) applyRotation(_ context.Context, fb *display.FBInk, wantRota int) {
 	if wantRota != 0 && wantRota != 2 {
+		return
+	}
+	if !a.kindleReady.Load() {
 		return
 	}
 	if a.currentPortraitRota() == wantRota {
 		return
 	}
-	old := a.currentPortraitRota()
 
 	vp, err := display.QueryViewport(fb.Bin)
 	if err != nil {
@@ -95,9 +101,10 @@ func (a *App) applyRotation(ctx context.Context, fb *display.FBInk, wantRota int
 		return
 	}
 	if vp.CurrentRota != wantRota {
-		log.Warn("orientation viewport rota=%d lagging want=%d (trust input)", vp.CurrentRota, wantRota)
+		log.Info("orientation fb_rota=%d portrait=%d (use portrait for flip/touch)", vp.CurrentRota, wantRota)
 	}
 
+	old := a.currentPortraitRota()
 	fb.SetViewport(vp)
 	a.storeTouchMappingForRota(vp, wantRota)
 	a.portraitRota.Store(int32(wantRota))
@@ -116,32 +123,5 @@ func (a *App) applyRotation(ctx context.Context, fb *display.FBInk, wantRota int
 		a.refreshFrameOpts(true, true, true)
 	} else {
 		a.refreshFrameOpts(true, false, true)
-	}
-
-	go a.resyncOrientationViewport(ctx, fb, wantRota)
-}
-
-func (a *App) resyncOrientationViewport(ctx context.Context, fb *display.FBInk, wantRota int) {
-	select {
-	case <-ctx.Done():
-		return
-	case <-time.After(600 * time.Millisecond):
-	}
-	if a.currentPortraitRota() != wantRota {
-		return
-	}
-	vp, err := display.QueryViewport(fb.Bin)
-	if err != nil {
-		return
-	}
-	fb.SetViewport(vp)
-	a.storeTouchMappingForRota(vp, wantRota)
-	log.Info("orientation resync fb_rota=%d want=%d quirk=%+v",
-		vp.CurrentRota, wantRota, vp.TouchQuirkForRota(wantRota))
-	a.mu.RLock()
-	hasBase := a.frameBase != nil && a.frameBaseProvider == a.activeProviderIDLocked()
-	a.mu.RUnlock()
-	if hasBase {
-		a.refreshFrameOpts(true, true, false)
 	}
 }

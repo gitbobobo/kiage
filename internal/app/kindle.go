@@ -63,14 +63,12 @@ func (a *App) RunKindle(ctx context.Context) error {
 		orientListener, err := input.OpenOrientationListener()
 		if err != nil {
 			log.Warn("orientation listener unavailable: %v", err)
-		} else if orientListener != nil {
+		} else {
 			log.Info("orientation listener opened")
 			defer orientListener.Close()
 			go orientListener.Run(ctx, func(rota int) {
 				a.applyRotation(ctx, fb, rota)
 			})
-		} else {
-			log.Info("orientation listener not found (non-Oasis or no accel device)")
 		}
 	} else {
 		log.Info("orientation listener disabled (KIAGE_ORIENTATION set)")
@@ -177,6 +175,7 @@ func (a *App) RunKindle(ctx context.Context) error {
 
 	paintStart := time.Now()
 	a.RefreshFrame()
+	a.markKindleReady()
 	log.Info("kindle first paint render ms=%d", time.Since(paintStart).Milliseconds())
 	go a.backgroundSync(ctx)
 

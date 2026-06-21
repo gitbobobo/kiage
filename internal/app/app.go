@@ -61,6 +61,7 @@ type App struct {
 	portraitRota  atomic.Int32
 	touchMapping  atomic.Value
 	touchQuirkVer atomic.Uint64
+	kindleReady   atomic.Bool
 }
 
 type displayNotify struct {
