@@ -26,10 +26,11 @@ import (
 )
 
 type frameSnapshot struct {
-	dash  aggregate.Dashboard
-	line  []aggregate.LinePoint
-	heat  aggregate.HeatmapStats
-	valid bool
+	dash      aggregate.Dashboard
+	line      []aggregate.LinePoint
+	heat      aggregate.HeatmapStats
+	dashValid bool
+	fullValid bool
 }
 
 type App struct {
@@ -49,7 +50,7 @@ type App struct {
 	frameSnaps  map[string]frameSnapshot
 	lastPNG           []byte
 	frameBase         *image.RGBA
-	frameBaseProvider string
+	frameBaseKey      string
 	lastErrs    map[string]error
 	syncing     map[string]bool
 	progress    map[string]string
@@ -123,7 +124,8 @@ func New(roots paths.Roots) (*App, error) {
 		syncing:    make(map[string]bool),
 		progress:   make(map[string]string),
 		view: render.ViewState{
-			ChartMetric:  "token",
+			Screen:       render.ScreenSummary,
+			ChartMetric:  render.MetricToken,
 			Orientation:  detectOrientation(),
 			ProviderID:   provider.CursorID,
 			SupportsCost: true,
@@ -133,12 +135,7 @@ func New(roots paths.Roots) (*App, error) {
 		a.attachSyncProgress(id, svc)
 	}
 	a.loadActiveProvider(context.Background())
-	if prov, ok := providers[a.activeProviderID]; ok {
-		a.view.ProviderID = a.activeProviderID
-		a.view.ProviderName = prov.DisplayName()
-		a.view.SupportsCost = prov.Capabilities().SupportsCost
-	}
-	log.Info("app init ok orientation=%s provider=%s", a.view.Orientation, a.view.ProviderName)
+	log.Info("app init ok orientation=%s screen=summary provider=%s", a.view.Orientation, a.activeProviderID)
 	return a, nil
 }
 
@@ -171,7 +168,7 @@ func (a *App) SetScreenSize(w, h int) {
 
 func (a *App) invalidateFrameBaseLocked() {
 	a.frameBase = nil
-	a.frameBaseProvider = ""
+	a.frameBaseKey = ""
 }
 
 func (a *App) View() render.ViewState {
@@ -217,6 +214,17 @@ func (a *App) refreshFrameOpts(urgent, viewOnly, forceFull bool) {
 	defer a.renderMu.Unlock()
 
 	start := time.Now()
+	a.mu.RLock()
+	screen := a.view.Screen
+	a.mu.RUnlock()
+	if screen == render.ScreenSummary {
+		a.renderSummaryFrame(urgent, viewOnly, forceFull, start)
+		return
+	}
+	a.renderProviderFrame(urgent, viewOnly, forceFull, start)
+}
+
+func (a *App) renderProviderFrame(urgent, viewOnly, forceFull bool, start time.Time) {
 	ctx := context.Background()
 
 	var (
@@ -228,14 +236,18 @@ func (a *App) refreshFrameOpts(urgent, viewOnly, forceFull bool) {
 
 	a.mu.RLock()
 	providerID := a.activeProviderIDLocked()
+	if a.view.Screen == render.ScreenProvider && a.view.ProviderID != "" {
+		providerID = a.view.ProviderID
+	}
 	snap := a.frameSnaps[providerID]
 	view := a.view
 	prov := a.providers[providerID]
 	cachedBase := a.frameBase
-	cachedBaseProvider := a.frameBaseProvider
+	cachedKey := a.frameBaseKey
+	key := frameBaseKey(render.ScreenProvider, providerID)
 	a.mu.RUnlock()
 
-	if viewOnly && snap.valid {
+	if viewOnly && snap.fullValid {
 		dash, line, heat = snap.dash, snap.line, snap.heat
 	} else {
 		aggStart := time.Now()
@@ -247,7 +259,10 @@ func (a *App) refreshFrameOpts(urgent, viewOnly, forceFull bool) {
 		aggMs = time.Since(aggStart).Milliseconds()
 
 		a.mu.Lock()
-		a.frameSnaps[providerID] = frameSnapshot{dash: dash, line: line, heat: heat, valid: true}
+		a.frameSnaps[providerID] = frameSnapshot{
+			dash: dash, line: line, heat: heat,
+			dashValid: true, fullValid: true,
+		}
 		a.mu.Unlock()
 	}
 
@@ -255,15 +270,7 @@ func (a *App) refreshFrameOpts(urgent, viewOnly, forceFull bool) {
 	if msg, ok := a.progress[providerID]; ok && msg != "" {
 		dash.SyncMessage = msg
 	}
-	if a.syncing[providerID] {
-		dash.SyncStatus = "同步中"
-	} else if view.SyncStatus != "" {
-		dash.SyncStatus = view.SyncStatus
-	} else if a.lastErrs[providerID] != nil {
-		dash.SyncStatus = "错误"
-	} else {
-		dash.SyncStatus = "就绪"
-	}
+	dash.SyncStatus = a.providerSyncStatusForDashLocked(providerID, dash)
 	a.mu.RUnlock()
 
 	size := a.frameSize()
@@ -275,18 +282,61 @@ func (a *App) refreshFrameOpts(urgent, viewOnly, forceFull bool) {
 
 	var base *image.RGBA
 	pngStart := time.Now()
-	if viewOnly && snap.valid && cachedBase != nil && cachedBaseProvider == providerID {
+	if viewOnly && snap.fullValid && cachedBase != nil && cachedKey == key {
 		base = cachedBase
 	} else {
 		base = render.DrawFrame(dash, line, heat, view, size)
 		a.mu.Lock()
-		if a.activeProviderIDLocked() == providerID {
+		if a.view.Screen == render.ScreenProvider && a.view.ProviderID == providerID {
 			a.frameBase = base
-			a.frameBaseProvider = providerID
+			a.frameBaseKey = key
 		}
 		a.mu.Unlock()
 	}
 
+	a.encodeAndDisplayFrame(base, providerID, urgent, viewOnly, forceFull, start, aggMs, pngStart)
+}
+
+func (a *App) renderSummaryFrame(urgent, viewOnly, forceFull bool, start time.Time) {
+	ctx := context.Background()
+	var aggMs int64
+
+	a.mu.RLock()
+	view := a.view
+	cachedBase := a.frameBase
+	cachedKey := a.frameBaseKey
+	snapsReady := a.allSummarySnapsReadyLocked()
+	key := frameBaseKey(render.ScreenSummary, "")
+	a.mu.RUnlock()
+
+	var overview aggregate.Overview
+	if viewOnly && snapsReady {
+		overview = a.buildOverview(ctx, true)
+	} else {
+		aggStart := time.Now()
+		overview = a.buildOverview(ctx, false)
+		aggMs = time.Since(aggStart).Milliseconds()
+	}
+
+	size := a.frameSize()
+	var base *image.RGBA
+	pngStart := time.Now()
+	if viewOnly && snapsReady && cachedBase != nil && cachedKey == key {
+		base = cachedBase
+	} else {
+		base = render.DrawSummaryFrame(overview, view, size)
+		a.mu.Lock()
+		if a.view.Screen == render.ScreenSummary {
+			a.frameBase = base
+			a.frameBaseKey = key
+		}
+		a.mu.Unlock()
+	}
+
+	a.encodeAndDisplayFrame(base, "summary", urgent, viewOnly, forceFull, start, aggMs, pngStart)
+}
+
+func (a *App) encodeAndDisplayFrame(base *image.RGBA, logID string, urgent, viewOnly, forceFull bool, start time.Time, aggMs int64, pngStart time.Time) {
 	inputRota := a.currentPortraitRota()
 	baseline := int(a.baselineRota.Load())
 	flipRota := render.PortraitRotaForDisplay(inputRota, 0, baseline)
@@ -295,12 +345,24 @@ func (a *App) refreshFrameOpts(urgent, viewOnly, forceFull bool) {
 	pngMs := time.Since(pngStart).Milliseconds()
 	a.mu.Lock()
 	a.lastPNG = png
-	if err != nil {
-		a.lastErrs[providerID] = err
+	if err != nil && logID != "summary" {
+		a.lastErrs[logID] = err
 	}
 	a.mu.Unlock()
-	log.Info("render frame ok provider=%s urgent=%v viewOnly=%v display_rota=%d input_rota=%d fb_rota=%d baseline=%d agg_ms=%d png_ms=%d total_ms=%d err=%v",
-		providerID, urgent, viewOnly, flipRota, inputRota, int(a.fbRota.Load()), baseline, aggMs, pngMs, time.Since(start).Milliseconds(), err)
+	log.Info("render frame ok id=%s urgent=%v viewOnly=%v display_rota=%d input_rota=%d fb_rota=%d baseline=%d agg_ms=%d png_ms=%d total_ms=%d err=%v",
+		logID, urgent, viewOnly, flipRota, inputRota, int(a.fbRota.Load()), baseline, aggMs, pngMs, time.Since(start).Milliseconds(), err)
+
+	a.mu.RLock()
+	screen := a.view.Screen
+	providerID := a.view.ProviderID
+	a.mu.RUnlock()
+	if logID == "summary" {
+		if screen != render.ScreenSummary {
+			return
+		}
+	} else if screen != render.ScreenProvider || providerID != logID {
+		return
+	}
 	a.notifyDisplay(urgent, forceFull)
 }
 
@@ -418,11 +480,11 @@ func (a *App) tryBeginSync(id string) bool {
 		return false
 	}
 	a.syncing[id] = true
-	if id == a.activeProviderIDLocked() {
+	if id == a.activeProviderIDLocked() && a.view.Screen == render.ScreenProvider {
 		a.view.SyncStatus = "同步中"
 	}
 	a.mu.Unlock()
-	if id == a.activeProviderIDLocked() && !render.KindleUI() {
+	if id == a.activeProviderIDLocked() && a.view.Screen == render.ScreenProvider && !render.KindleUI() {
 		a.RefreshFrame()
 	}
 	return true
@@ -431,12 +493,16 @@ func (a *App) tryBeginSync(id string) bool {
 func (a *App) finishSync(id string) {
 	a.mu.Lock()
 	a.syncing[id] = false
+	delete(a.progress, id)
 	if snap, ok := a.frameSnaps[id]; ok {
-		snap.valid = false
+		snap.dashValid = false
+		snap.fullValid = false
 		a.frameSnaps[id] = snap
 	}
-	if id == a.activeProviderIDLocked() {
-		a.invalidateFrameBaseLocked()
+	a.invalidateFrameBaseLocked()
+	viewScreen := a.view.Screen
+	active := a.activeProviderIDLocked()
+	if id == active && viewScreen == render.ScreenProvider {
 		if a.lastErrs[id] == nil {
 			a.view.SyncStatus = "就绪"
 		} else {
@@ -444,7 +510,10 @@ func (a *App) finishSync(id string) {
 		}
 	}
 	a.mu.Unlock()
-	if id == a.activeProviderIDLocked() {
+
+	shouldRefresh := viewScreen == render.ScreenSummary ||
+		(id == active && viewScreen == render.ScreenProvider)
+	if shouldRefresh {
 		if render.KindleUI() {
 			go func() {
 				time.Sleep(350 * time.Millisecond)
@@ -494,27 +563,35 @@ func (a *App) RunDev(ctx context.Context, addr string) error {
 	mux.HandleFunc("/api/layout", func(w http.ResponseWriter, r *http.Request) {
 		a.mu.RLock()
 		orient := a.view.Orientation
+		screen := a.view.Screen
 		active := a.view.SettingsActive
 		url := a.view.SettingsURL
 		metric := a.view.ChartMetric
 		providerID := a.activeProviderIDLocked()
+		if screen == render.ScreenProvider && a.view.ProviderID != "" {
+			providerID = a.view.ProviderID
+		}
 		supportsCost := a.view.SupportsCost
 		name := a.view.ProviderName
 		a.mu.RUnlock()
 		size := a.frameSize()
-		regions := render.TopControlsHitRegions(name)
-		_ = json.NewEncoder(w).Encode(map[string]any{
+		regions := render.TopControlsHitRegions(screen, name)
+		resp := map[string]any{
 			"width":           size.Width,
 			"height":          size.Height,
 			"orientation":     orient,
+			"screen":          string(screen),
 			"syncing":         a.IsSyncing(),
 			"settings_active": active,
 			"settings_url":    url,
-			"chart_metric":    metric,
 			"provider_id":     providerID,
-			"supports_cost":   supportsCost,
 			"regions":         regions,
-		})
+		}
+		if screen == render.ScreenProvider {
+			resp["chart_metric"] = metric
+			resp["supports_cost"] = supportsCost
+		}
+		_ = json.NewEncoder(w).Encode(resp)
 	})
 	mux.HandleFunc("/api/action", func(w http.ResponseWriter, r *http.Request) {
 		name := r.URL.Query().Get("name")
@@ -524,22 +601,23 @@ func (a *App) RunDev(ctx context.Context, addr string) error {
 			writeRefreshAction(w, started, started || a.IsSyncing())
 		case "toggle_metric":
 			a.mu.RLock()
+			screen := a.view.Screen
 			supportsCost := a.view.SupportsCost
 			a.mu.RUnlock()
-			if !supportsCost {
+			if screen != render.ScreenProvider || !supportsCost {
 				writeActionOK(w)
 				break
 			}
 			a.SetView(func(v *render.ViewState) {
-				if v.ChartMetric == "token" {
-					v.ChartMetric = "cost"
+				if v.ChartMetric == render.MetricToken {
+					v.ChartMetric = render.MetricCost
 				} else {
-					v.ChartMetric = "token"
+					v.ChartMetric = render.MetricToken
 				}
 			})
 			writeActionOK(w)
-		case "toggle_provider":
-			a.toggleProvider()
+		case "toggle_provider", "cycle_screen":
+			a.cycleScreen()
 			writeActionOK(w)
 		case "set_provider":
 			id := r.URL.Query().Get("id")

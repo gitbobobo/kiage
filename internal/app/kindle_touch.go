@@ -35,19 +35,20 @@ func (h *kindleKeyHandler) PortraitRota() int {
 func (h *kindleKeyHandler) OnScreenKey(action input.ScreenKeyAction) {
 	switch action {
 	case input.ScreenUpSingle:
-		go h.app.toggleProvider()
+		go h.app.cycleScreen()
 	case input.ScreenUpDouble:
 		h.app.mu.RLock()
+		screen := h.app.view.Screen
 		supportsCost := h.app.view.SupportsCost
 		h.app.mu.RUnlock()
-		if !supportsCost {
+		if screen != render.ScreenProvider || !supportsCost {
 			return
 		}
 		h.app.SetViewUrgent(func(v *render.ViewState) {
-			if v.ChartMetric == "token" {
-				v.ChartMetric = "cost"
+			if v.ChartMetric == render.MetricToken {
+				v.ChartMetric = render.MetricCost
 			} else {
-				v.ChartMetric = "token"
+				v.ChartMetric = render.MetricToken
 			}
 		})
 	case input.ScreenDownSingle:
@@ -63,6 +64,10 @@ func (h *kindleKeyHandler) OnScreenKey(action input.ScreenKeyAction) {
 
 func (a *App) handleTopTap(x, y int) {
 	a.mu.Lock()
+	if a.view.Screen == render.ScreenSummary {
+		a.mu.Unlock()
+		return
+	}
 	if time.Since(a.lastTouchTap) < kindleTouchDebounce {
 		a.mu.Unlock()
 		log.Info("touch tap (%d,%d) ignored debounce", x, y)
@@ -73,7 +78,7 @@ func (a *App) handleTopTap(x, y int) {
 	name := a.view.ProviderName
 	a.mu.Unlock()
 
-	regions := render.TopControlsHitRegions(name)
+	regions := render.TopControlsHitRegions(render.ScreenProvider, name)
 
 	if !regions.ProviderTitle.ContainsPadAsymmetric(x, y, 12, 12, 12, 48) {
 		return

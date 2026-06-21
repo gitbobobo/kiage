@@ -7,6 +7,7 @@ import (
 	"github.com/godbobo/kiage/internal/provider"
 	"github.com/godbobo/kiage/internal/provider/cursor"
 	"github.com/godbobo/kiage/internal/provider/glm"
+	"github.com/godbobo/kiage/internal/render"
 	syncer "github.com/godbobo/kiage/internal/sync"
 )
 
@@ -62,36 +63,7 @@ func (a *App) setActiveProvider(id string) {
 	if id != provider.CursorID && id != provider.GLMID {
 		return
 	}
-	a.mu.Lock()
-	if a.activeProviderID == id {
-		a.mu.Unlock()
-		return
-	}
-	a.activeProviderID = id
-	a.invalidateFrameBaseLocked()
-	if prov, ok := a.providers[id]; ok {
-		a.view.ProviderID = id
-		a.view.ProviderName = prov.DisplayName()
-		caps := prov.Capabilities()
-		a.view.SupportsCost = caps.SupportsCost
-		if !caps.SupportsCost {
-			a.view.ChartMetric = "token"
-		}
-		if !a.providerConfiguredLocked(id) {
-			a.view.SyncStatus = "未配置 API Key"
-		} else if a.lastErrs[id] != nil {
-			a.view.SyncStatus = "错误"
-		} else {
-			a.view.SyncStatus = "就绪"
-		}
-	}
-	a.mu.Unlock()
-
-	_ = a.store.SetState(context.Background(), provider.AppStateProvider, "active_provider", id)
-	a.refreshFrameViewOnly(true)
-	if a.providerConfigured(id) {
-		a.startSyncProviderAsync(context.Background(), id)
-	}
+	a.setScreen(render.ScreenProvider, id, true)
 }
 
 func (a *App) providerConfiguredLocked(id string) bool {
@@ -105,22 +77,11 @@ func (a *App) providerConfiguredLocked(id string) bool {
 	}
 }
 
-func (a *App) toggleProvider() {
-	a.mu.RLock()
-	cur := a.activeProviderID
-	a.mu.RUnlock()
-	if cur == provider.CursorID {
-		a.setActiveProvider(provider.GLMID)
-	} else {
-		a.setActiveProvider(provider.CursorID)
-	}
-}
-
 func (a *App) attachSyncProgress(id string, svc *syncer.Service) {
 	svc.OnProgress(func(p syncer.Progress) {
 		a.mu.Lock()
 		a.progress[id] = p.Message
-		if id == a.activeProviderIDLocked() {
+		if id == a.activeProviderIDLocked() && a.view.Screen == render.ScreenProvider {
 			a.view.SyncMessage = p.Message
 		}
 		a.mu.Unlock()

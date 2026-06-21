@@ -103,7 +103,7 @@
 <body>
   <header class="header">
     <div class="header-left">
-      <h1>kiage · Oasis 预览</h1>
+      <h1>kiage · Oasis 预览<span id="screenLabel"></span></h1>
     </div>
     <div class="header-right">
       <span class="service-url" id="serviceUrl"></span>
@@ -122,6 +122,7 @@
     const frame = document.getElementById('frame');
     const wrap = document.getElementById('wrap');
     const serviceUrlEl = document.getElementById('serviceUrl');
+    const screenLabelEl = document.getElementById('screenLabel');
     let layout = null;
 
     const CLICK_WINDOW_MS = 300;
@@ -178,6 +179,13 @@
       } else {
         setServiceUrl('');
       }
+      if (layout.screen === 'summary') {
+        screenLabelEl.textContent = ' · 用量概览';
+      } else if (layout.provider_id) {
+        screenLabelEl.textContent = ' · ' + layout.provider_id;
+      } else {
+        screenLabelEl.textContent = '';
+      }
     }
 
     function refresh() { frame.src = '/frame?t=' + Date.now(); }
@@ -232,8 +240,11 @@
           state.timer = null;
         }
         state.lastAt = 0;
-        if (key === 'ArrowUp') act('toggle_metric');
-        else act('exit');
+        if (key === 'ArrowUp') {
+          if (layout?.screen === 'provider' && layout?.supports_cost) {
+            act('toggle_metric');
+          }
+        } else act('exit');
         return;
       }
       state.lastAt = now;
@@ -241,12 +252,13 @@
       state.timer = setTimeout(() => {
         state.timer = null;
         state.lastAt = 0;
-        if (key === 'ArrowUp') act('toggle_provider');
+        if (key === 'ArrowUp') act('cycle_screen');
         else act('toggle_settings');
       }, CLICK_WINDOW_MS);
     }
 
     wrap.addEventListener('click', (e) => {
+      if (layout?.screen === 'summary') return;
       if (!layout?.regions?.provider_title) return;
       const p = canvasPoint(e);
       if (inRect(p.x, p.y, layout.regions.provider_title)) {
