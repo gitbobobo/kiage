@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/godbobo/kiage/internal/display"
@@ -129,17 +130,16 @@ func rotaFromLIPCCode(code string) (int, bool) {
 }
 
 func (l *OrientationListener) Run(ctx context.Context, onRota func(rota int)) {
-	if l == nil || l.f == nil || onRota == nil {
+	if l == nil || onRota == nil {
 		return
 	}
-	go l.runLIPCPoll(ctx, onRota)
+	emit := newOrientationEmitter(400 * time.Millisecond)
+	if l.f == nil {
+		<-ctx.Done()
+		return
+	}
 
-	var (
-		lastRota = -1
-		lastAt   time.Time
-		buf      = make([]byte, inputEventSize)
-		debounce = 150 * time.Millisecond
-	)
+	var buf = make([]byte, inputEventSize)
 	for {
 		select {
 		case <-ctx.Done():
@@ -157,58 +157,35 @@ func (l *OrientationListener) Run(ctx context.Context, onRota func(rota int)) {
 		if !ok {
 			continue
 		}
-		now := time.Now()
-		if rota == lastRota && now.Sub(lastAt) < debounce {
-			continue
-		}
-		lastRota = rota
-		lastAt = now
-		log.Info("orientation event rota=%d dev=%s", rota, l.dev)
-		onRota(rota)
+		emit.try(rota, l.dev, onRota)
 	}
 }
 
-func (l *OrientationListener) runLIPCPoll(ctx context.Context, onRota func(rota int)) {
-	var lastRota = -1
-	tick := time.NewTicker(800 * time.Millisecond)
-	defer tick.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-tick.C:
-			rota, ok := lipcPortraitRota()
-			if !ok || rota == lastRota {
-				continue
-			}
-			lastRota = rota
-			log.Info("orientation lipc rota=%d", rota)
-			onRota(rota)
-		}
-	}
+type orientationEmitter struct {
+	mu       sync.Mutex
+	lastRota int
+	lastAt   time.Time
+	debounce time.Duration
 }
 
-func lipcPortraitRota() (int, bool) {
-	code := queryAccelerometerLIPCQuiet()
-	if code == "" {
-		code = queryAccelerometerLIPC()
-	}
-	switch code {
-	case "U", "V":
-		return 0, true
-	case "D":
-		return 2, true
-	default:
-		return 0, false
-	}
+func newOrientationEmitter(debounce time.Duration) *orientationEmitter {
+	return &orientationEmitter{lastRota: -1, debounce: debounce}
 }
 
-func queryAccelerometerLIPCQuiet() string {
-	out, err := exec.Command("lipc-get-prop", "com.lab126.winmgr", "accelerometer").Output()
-	if err != nil {
-		return ""
+func (e *orientationEmitter) try(rota int, dev string, onRota func(int)) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	now := time.Now()
+	if rota == e.lastRota {
+		return
 	}
-	return strings.Trim(strings.TrimSpace(string(out)), "[]")
+	if e.lastRota >= 0 && now.Sub(e.lastAt) < e.debounce {
+		return
+	}
+	e.lastRota = rota
+	e.lastAt = now
+	log.Info("orientation event rota=%d dev=%s", rota, dev)
+	onRota(rota)
 }
 
 func (l *OrientationListener) parseEvent(buf []byte) (rota int, ok bool) {
