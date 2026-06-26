@@ -12,6 +12,13 @@ import (
 	"github.com/godbobo/kiage/internal/provider"
 )
 
+const GlobalProviderID = "__global__"
+
+const (
+	GlobalKeyLastSyncAt  = "last_global_sync_at"
+	GlobalKeyLastBatchAt = "last_batch_at"
+)
+
 type Store struct {
 	db *sql.DB
 }
@@ -25,6 +32,7 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	db.SetMaxOpenConns(1)
 	s := &Store{db: db}
 	if err := s.migrate(); err != nil {
 		db.Close()
@@ -156,6 +164,14 @@ func (s *Store) SetState(ctx context.Context, providerID, key, value string) err
 		ON CONFLICT(provider_id, key) DO UPDATE SET value=excluded.value`,
 		providerID, key, value)
 	return err
+}
+
+func (s *Store) GetGlobalState(ctx context.Context, key string) (string, bool, error) {
+	return s.GetState(ctx, GlobalProviderID, key)
+}
+
+func (s *Store) SetGlobalState(ctx context.Context, key, value string) error {
+	return s.SetState(ctx, GlobalProviderID, key, value)
 }
 
 func (s *Store) UpsertEvent(ctx context.Context, providerID string, ev provider.UsageEvent, checksum string) error {
