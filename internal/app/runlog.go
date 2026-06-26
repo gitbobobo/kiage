@@ -6,6 +6,7 @@ import (
 	"github.com/godbobo/kiage/internal/config"
 	"github.com/godbobo/kiage/internal/log"
 	"github.com/godbobo/kiage/internal/paths"
+	"github.com/godbobo/kiage/internal/render"
 )
 
 func LogRunEnvironment(roots paths.Roots) {
@@ -21,6 +22,14 @@ func LogRunEnvironment(roots paths.Roots) {
 }
 
 func LogConfigLoaded(cfg config.Config) {
+	if render.KindleUI() {
+		log.Info("config timezone=%s sync=wake+rtc(1h) stale=%s token=%s",
+			cfg.Timezone,
+			globalSyncStaleAfter,
+			config.RedactToken(cfg.Cursor.SessionToken),
+		)
+		return
+	}
 	log.Info("config timezone=%s refresh_interval_sec=%d token=%s",
 		cfg.Timezone,
 		cfg.RefreshIntervalSec,

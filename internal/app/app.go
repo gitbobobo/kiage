@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"image"
 	"net/http"
@@ -64,11 +63,26 @@ type App struct {
 	touchMapping  atomic.Value
 	touchQuirkVer atomic.Uint64
 	kindleReady   atomic.Bool
+	batchSyncing  atomic.Bool
+	syncTimeMu    sync.RWMutex
+	lastGlobalSyncAt  time.Time
+	lastBatchStartedAt time.Time
+	kindleUI            kindleUIState
+	suppressInputUntil  atomic.Int64
+	rtcMaintaining      atomic.Bool
+	rtcArmed            atomic.Bool
+	pendingRTCMu        sync.Mutex
+	pendingRTC          *pendingRTCWake
+}
+
+type pendingRTCWake struct {
+	sleptSec int
 }
 
 type displayNotify struct {
 	urgent    bool
 	forceFull bool
+	done      chan struct{}
 }
 
 func New(roots paths.Roots) (*App, error) {
@@ -135,6 +149,7 @@ func New(roots paths.Roots) (*App, error) {
 		a.attachSyncProgress(id, svc)
 	}
 	a.loadActiveProvider(context.Background())
+	a.loadGlobalSyncTimes(context.Background())
 	log.Info("app init ok orientation=%s screen=summary provider=%s", a.view.Orientation, a.activeProviderID)
 	return a, nil
 }
@@ -194,6 +209,46 @@ func (a *App) SetViewUrgent(fn func(*render.ViewState)) {
 
 func (a *App) RefreshFrame() {
 	a.refreshFrame(false)
+}
+
+func (a *App) suppressInputFor(d time.Duration) {
+	a.suppressInputUntil.Store(time.Now().Add(d).UnixNano())
+}
+
+func (a *App) clearInputSuppress() {
+	a.suppressInputUntil.Store(0)
+}
+
+func (a *App) armPendingRTCWake(sleptSec int) {
+	a.pendingRTCMu.Lock()
+	a.pendingRTC = &pendingRTCWake{sleptSec: sleptSec}
+	a.pendingRTCMu.Unlock()
+}
+
+func (a *App) cancelPendingRTCWake() bool {
+	a.pendingRTCMu.Lock()
+	defer a.pendingRTCMu.Unlock()
+	if a.pendingRTC == nil {
+		return false
+	}
+	a.pendingRTC = nil
+	return true
+}
+
+func (a *App) takePendingRTCWake() (int, bool) {
+	a.pendingRTCMu.Lock()
+	defer a.pendingRTCMu.Unlock()
+	if a.pendingRTC == nil {
+		return 0, false
+	}
+	slept := a.pendingRTC.sleptSec
+	a.pendingRTC = nil
+	return slept, true
+}
+
+func (a *App) inputSuppressed() bool {
+	until := a.suppressInputUntil.Load()
+	return until > 0 && time.Now().UnixNano() < until
 }
 
 func (a *App) refreshFrameViewOnly(urgent bool) {
@@ -378,71 +433,71 @@ func (a *App) LastError() error {
 	return a.lastErrs[a.activeProviderIDLocked()]
 }
 
-func (a *App) notifyDisplay(urgent, forceFull bool) {
-	n := displayNotify{urgent: urgent, forceFull: forceFull}
+// displayBlockingError 仅在详情页且当前 provider 同步失败时阻止刷屏；概览页仍应展示（含错误状态）。
+func (a *App) displayBlockingError() error {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	if a.view.Screen != render.ScreenProvider {
+		return nil
+	}
+	id := a.activeProviderIDLocked()
+	if id == "" {
+		return nil
+	}
+	return a.lastErrs[id]
+}
+
+func (a *App) sendDisplayNotify(n displayNotify) bool {
 	for i := 0; i < 8; i++ {
 		select {
 		case a.displayCh <- n:
-			return
+			return true
 		default:
 		}
 		select {
 		case old := <-a.displayCh:
-			if urgent {
+			if n.urgent {
 				old.urgent = true
 			}
-			if forceFull {
+			if n.forceFull {
 				old.forceFull = true
+			}
+			if n.done != nil {
+				old.done = n.done
 			}
 			n = old
 		default:
-			log.Warn("notify display queue full urgent=%v forceFull=%v", urgent, forceFull)
-			return
+			log.Warn("notify display queue full urgent=%v forceFull=%v", n.urgent, n.forceFull)
+			return false
 		}
+	}
+	return false
+}
+
+func (a *App) notifyDisplay(urgent, forceFull bool) {
+	a.sendDisplayNotify(displayNotify{urgent: urgent, forceFull: forceFull})
+}
+
+func (a *App) notifyDisplayWait(urgent, forceFull bool, timeout time.Duration) {
+	done := make(chan struct{}, 1)
+	if !a.sendDisplayNotify(displayNotify{urgent: urgent, forceFull: forceFull, done: done}) {
+		return
+	}
+	select {
+	case <-done:
+	case <-time.After(timeout):
+		log.Warn("display flush timeout after %s", timeout)
 	}
 }
 
 func (a *App) DoSync(ctx context.Context) error {
-	return a.syncAllProviders(ctx)
-}
-
-func (a *App) syncAllProviders(ctx context.Context) error {
-	var errs []error
-	for _, id := range allProviderIDs() {
-		if !a.providerConfigured(id) {
-			continue
-		}
-		if err := a.syncProvider(ctx, id); err != nil {
-			errs = append(errs, fmt.Errorf("%s: %w", id, err))
-		}
-	}
-	return errors.Join(errs...)
+	return a.syncAllProvidersBatch(ctx, syncCauseManual)
 }
 
 func (a *App) syncerFor(id string) *syncer.Service {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 	return a.syncers[id]
-}
-
-func (a *App) syncProvider(ctx context.Context, id string) error {
-	if !a.tryBeginSync(id) {
-		return nil
-	}
-	defer a.finishSync(id)
-
-	svc := a.syncerFor(id)
-	if svc == nil {
-		return fmt.Errorf("unknown provider %s", id)
-	}
-	err := svc.Run(ctx, "auto")
-	a.mu.Lock()
-	a.lastErrs[id] = err
-	if id == a.activeProviderIDLocked() && err == nil {
-		a.view.SyncStatus = "就绪"
-	}
-	a.mu.Unlock()
-	return err
 }
 
 func (a *App) startSyncProviderAsync(ctx context.Context, id string) bool {
@@ -466,16 +521,19 @@ func (a *App) startSyncProviderAsync(ctx context.Context, id string) bool {
 	return true
 }
 
-func (a *App) startSyncAsync(ctx context.Context) bool {
-	a.mu.RLock()
-	id := a.activeProviderIDLocked()
-	a.mu.RUnlock()
-	return a.startSyncProviderAsync(ctx, id)
+func (a *App) startSyncProvidersBatchAsync() bool {
+	if a.batchSyncing.Load() || a.IsSyncing() {
+		return false
+	}
+	go func() {
+		_ = a.syncAllProvidersBatch(context.Background(), syncCauseManual)
+	}()
+	return true
 }
 
 func (a *App) tryBeginSync(id string) bool {
 	a.mu.Lock()
-	if a.syncing[id] {
+	if a.batchSyncing.Load() || a.syncing[id] {
 		a.mu.Unlock()
 		return false
 	}
@@ -491,41 +549,17 @@ func (a *App) tryBeginSync(id string) bool {
 }
 
 func (a *App) finishSync(id string) {
+	a.finishSyncProvider(id)
 	a.mu.Lock()
-	a.syncing[id] = false
-	delete(a.progress, id)
-	if snap, ok := a.frameSnaps[id]; ok {
-		snap.dashValid = false
-		snap.fullValid = false
-		a.frameSnaps[id] = snap
-	}
 	a.invalidateFrameBaseLocked()
-	viewScreen := a.view.Screen
-	active := a.activeProviderIDLocked()
-	if id == active && viewScreen == render.ScreenProvider {
-		if a.lastErrs[id] == nil {
-			a.view.SyncStatus = "就绪"
-		} else {
-			a.view.SyncStatus = "错误"
-		}
-	}
 	a.mu.Unlock()
-
-	shouldRefresh := viewScreen == render.ScreenSummary ||
-		(id == active && viewScreen == render.ScreenProvider)
-	if shouldRefresh {
-		if render.KindleUI() {
-			go func() {
-				time.Sleep(350 * time.Millisecond)
-				a.refreshFrame(false)
-			}()
-		} else {
-			a.RefreshFrame()
-		}
-	}
+	a.refreshAfterSingleSync(id)
 }
 
 func (a *App) IsSyncing() bool {
+	if a.batchSyncing.Load() {
+		return true
+	}
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 	for _, v := range a.syncing {
@@ -538,7 +572,7 @@ func (a *App) IsSyncing() bool {
 
 func (a *App) RunDev(ctx context.Context, addr string) error {
 	a.RefreshFrame()
-	go a.backgroundSync(ctx)
+	go a.devBackgroundSync(ctx)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", servePreview)
@@ -597,7 +631,7 @@ func (a *App) RunDev(ctx context.Context, addr string) error {
 		name := r.URL.Query().Get("name")
 		switch name {
 		case "refresh":
-			started := a.startSyncAsync(context.Background())
+			started := a.startSyncProvidersBatchAsync()
 			writeRefreshAction(w, started, started || a.IsSyncing())
 		case "toggle_metric":
 			a.mu.RLock()
@@ -662,36 +696,12 @@ func (a *App) RunDev(ctx context.Context, addr string) error {
 
 func (a *App) RunLoop(ctx context.Context) error {
 	a.RefreshFrame()
-	go a.backgroundSync(ctx)
+	go a.devBackgroundSync(ctx)
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	<-sig
 	return nil
-}
-
-func (a *App) backgroundSync(ctx context.Context) {
-	_ = a.syncAllProviders(ctx)
-	a.mu.RLock()
-	interval := time.Duration(a.cfg.RefreshIntervalSec) * time.Second
-	a.mu.RUnlock()
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			_ = a.syncAllProviders(ctx)
-			a.mu.RLock()
-			next := time.Duration(a.cfg.RefreshIntervalSec) * time.Second
-			a.mu.RUnlock()
-			if next != interval {
-				interval = next
-				ticker.Reset(interval)
-			}
-		}
-	}
 }
 
 func importTokenIfPresent(roots paths.Roots, cfg *config.Config) error {

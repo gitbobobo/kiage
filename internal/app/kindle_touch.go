@@ -33,6 +33,15 @@ func (h *kindleKeyHandler) PortraitRota() int {
 }
 
 func (h *kindleKeyHandler) OnScreenKey(action input.ScreenKeyAction) {
+	if action == input.ScreenDownDouble {
+		h.app.clearInputSuppress()
+		h.app.requestExit()
+		return
+	}
+	if h.app.inputSuppressed() {
+		log.Info("key ignored input suppress")
+		return
+	}
 	switch action {
 	case input.ScreenUpSingle:
 		go h.app.cycleScreen()
@@ -57,12 +66,14 @@ func (h *kindleKeyHandler) OnScreenKey(action input.ScreenKeyAction) {
 				log.Warn("toggle settings: %v", err)
 			}
 		}()
-	case input.ScreenDownDouble:
-		h.app.requestExit()
 	}
 }
 
 func (a *App) handleTopTap(x, y int) {
+	if a.inputSuppressed() {
+		log.Info("touch tap (%d,%d) ignored input suppress", x, y)
+		return
+	}
 	a.mu.Lock()
 	if a.view.Screen == render.ScreenSummary {
 		a.mu.Unlock()
@@ -95,15 +106,6 @@ func (a *App) requestExit() {
 	}
 }
 
-func keepScreenAwake() {
-	_ = exec.Command("lipc-set-prop", "com.lab126.powerd", "preventScreenSaver", "1").Run()
-}
-
-func releaseScreenAwake() {
-	_ = exec.Command("lipc-set-prop", "com.lab126.powerd", "preventScreenSaver", "0").Run()
-}
-
 func (a *App) shutdownKindleInputs() {
-	// UI 恢复由 start.sh trap → kiage_ui_leave 负责；此处仅提前释放按键 proc。
 	_ = exec.Command("sh", "-c", `[ -e /proc/keypad ] && echo unlock >/proc/keypad; [ -e /proc/fiveway ] && echo unlock >/proc/fiveway`).Run()
 }

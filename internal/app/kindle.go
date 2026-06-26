@@ -14,7 +14,7 @@ import (
 
 func (a *App) RunKindle(ctx context.Context) error {
 	log.Info("kindle loop start")
-	keepScreenAwake()
+	maybeKeepScreenAwake()
 	defer releaseScreenAwake()
 
 	fbBin := os.Getenv("KIAGE_FBINK")
@@ -101,26 +101,26 @@ func (a *App) RunKindle(ctx context.Context) error {
 		flushCount   int
 	)
 
-	pushDisplay := func(urgent, forceFull bool) {
-		if err := a.LastError(); err != nil {
-			log.Error("render frame: %v", err)
-			return
+	pushDisplay := func(urgent, forceFull bool) bool {
+		if err := a.displayBlockingError(); err != nil {
+			log.Warn("display skipped provider error: %v", err)
+			return false
 		}
 		png := a.PNG()
 		if len(png) == 0 {
 			log.Warn("render frame: empty png")
-			return
+			return false
 		}
 		hash := sha256.Sum256(png)
 		if firstDone && hash == lastHash && !urgent && !forceFull {
-			return
+			return true
 		}
 		lastHash = hash
 
 		path, err := display.WriteTempPNG(a.roots.Cache, png)
 		if err != nil {
 			log.Error("write frame.png: %v", err)
-			return
+			return false
 		}
 
 		var mode display.RefreshMode
@@ -144,10 +144,10 @@ func (a *App) RunKindle(ctx context.Context) error {
 				log.Info("fbink retry urgent as full GC16")
 				if err2 := fb.ShowPNG(path, display.RefreshFull); err2 != nil {
 					log.Error("fbink retry failed: %v", err2)
-					return
+					return false
 				}
 			} else {
-				return
+				return false
 			}
 		}
 		if forceFull {
@@ -159,6 +159,7 @@ func (a *App) RunKindle(ctx context.Context) error {
 		flushCount++
 		log.Info("fbink show ok mode=%d bytes=%d count=%d partial=%d urgent=%v forceFull=%v portrait_rota=%d fb_ms=%d",
 			mode, len(png), flushCount, partialCount, urgent, forceFull, a.currentPortraitRota(), time.Since(fbStart).Milliseconds())
+		return true
 	}
 
 	go func() {
@@ -169,6 +170,7 @@ func (a *App) RunKindle(ctx context.Context) error {
 			case n := <-a.displayCh:
 				urgent := n.urgent
 				forceFull := n.forceFull
+				done := n.done
 			drain:
 				for {
 					select {
@@ -179,11 +181,17 @@ func (a *App) RunKindle(ctx context.Context) error {
 						if n2.forceFull {
 							forceFull = true
 						}
+						if n2.done != nil {
+							done = n2.done
+						}
 					default:
 						break drain
 					}
 				}
-				pushDisplay(urgent, forceFull)
+				_ = pushDisplay(urgent, forceFull)
+				if done != nil {
+					done <- struct{}{}
+				}
 			}
 		}
 	}()
@@ -192,7 +200,10 @@ func (a *App) RunKindle(ctx context.Context) error {
 	a.RefreshFrame()
 	a.markKindleReady()
 	log.Info("kindle first paint render ms=%d", time.Since(paintStart).Milliseconds())
-	go a.backgroundSync(ctx)
+	go a.runPowerManager(ctx)
+	go func() {
+		_ = a.syncAllProvidersBatch(ctx, syncCauseStartup)
+	}()
 
 	for {
 		select {
