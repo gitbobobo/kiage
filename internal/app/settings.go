@@ -149,14 +149,17 @@ func (a *App) handleConfigAPI(w http.ResponseWriter, r *http.Request) {
 		a.mu.RLock()
 		cfg := a.cfg
 		a.mu.RUnlock()
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"token_hint":           config.RedactToken(cfg.Cursor.SessionToken),
-			"glm_key_hint":         config.RedactToken(cfg.GLM.APIKey),
-			"minimax_key_hint":     config.RedactToken(cfg.MiniMax.APIKey),
-			"kimi_key_hint":        config.RedactToken(cfg.Kimi.APIKey),
-			"timezone":             cfg.Timezone,
-			"refresh_interval_sec": cfg.RefreshIntervalSec,
-		})
+		resp := map[string]any{
+			"token_hint":       config.RedactToken(cfg.Cursor.SessionToken),
+			"glm_key_hint":     config.RedactToken(cfg.GLM.APIKey),
+			"minimax_key_hint": config.RedactToken(cfg.MiniMax.APIKey),
+			"kimi_key_hint":    config.RedactToken(cfg.Kimi.APIKey),
+			"timezone":         cfg.Timezone,
+		}
+		if !render.KindleUI() {
+			resp["refresh_interval_sec"] = cfg.RefreshIntervalSec
+		}
+		_ = json.NewEncoder(w).Encode(resp)
 	case http.MethodPost:
 		var body struct {
 			SessionToken       string `json:"session_token"`
@@ -187,7 +190,7 @@ func (a *App) handleConfigAPI(w http.ResponseWriter, r *http.Request) {
 		if body.Timezone != "" {
 			cfg.Timezone = body.Timezone
 		}
-		if body.RefreshIntervalSec >= 60 {
+		if !render.KindleUI() && body.RefreshIntervalSec >= 60 {
 			if body.RefreshIntervalSec > config.MaxRefreshIntervalSec {
 				body.RefreshIntervalSec = config.MaxRefreshIntervalSec
 			}
@@ -217,15 +220,18 @@ func (a *App) handleConfigAPI(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"ok":                   true,
-			"token_hint":           config.RedactToken(cfg.Cursor.SessionToken),
-			"glm_key_hint":         config.RedactToken(cfg.GLM.APIKey),
-			"minimax_key_hint":     config.RedactToken(cfg.MiniMax.APIKey),
-			"kimi_key_hint":        config.RedactToken(cfg.Kimi.APIKey),
-			"timezone":             cfg.Timezone,
-			"refresh_interval_sec": cfg.RefreshIntervalSec,
-		})
+		resp := map[string]any{
+			"ok":               true,
+			"token_hint":       config.RedactToken(cfg.Cursor.SessionToken),
+			"glm_key_hint":     config.RedactToken(cfg.GLM.APIKey),
+			"minimax_key_hint": config.RedactToken(cfg.MiniMax.APIKey),
+			"kimi_key_hint":    config.RedactToken(cfg.Kimi.APIKey),
+			"timezone":         cfg.Timezone,
+		}
+		if !render.KindleUI() {
+			resp["refresh_interval_sec"] = cfg.RefreshIntervalSec
+		}
+		_ = json.NewEncoder(w).Encode(resp)
 		a.RefreshFrame()
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)

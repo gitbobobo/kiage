@@ -57,7 +57,7 @@
       <option value="UTC">UTC</option>
     </select>
   </div>
-  <div class="field">
+  <div class="field" id="intervalField" style="display:none">
     <label for="interval">自动刷新间隔（秒）</label>
     <input id="interval" type="number" min="60" step="60" />
   </div>
@@ -77,24 +77,31 @@
       document.getElementById('minimaxHint').textContent = '当前：' + (d.minimax_key_hint || '未配置');
       document.getElementById('kimiHint').textContent = '当前：' + (d.kimi_key_hint || '未配置');
       document.getElementById('tz').value = d.timezone || 'Asia/Shanghai';
-      document.getElementById('interval').value = d.refresh_interval_sec || 600;
+      if (d.refresh_interval_sec != null) {
+        document.getElementById('intervalField').style.display = '';
+        document.getElementById('interval').value = d.refresh_interval_sec;
+      }
     }
     async function save() {
       const btn = document.getElementById('saveBtn');
       btn.disabled = true;
       showMsg('保存中…', true);
       try {
+        const body = {
+          session_token: document.getElementById('token').value.trim(),
+          glm_api_key: document.getElementById('glmKey').value.trim(),
+          minimax_api_key: document.getElementById('minimaxKey').value.trim(),
+          kimi_api_key: document.getElementById('kimiKey').value.trim(),
+          timezone: document.getElementById('tz').value,
+        };
+        const intervalEl = document.getElementById('interval');
+        if (intervalEl.offsetParent !== null) {
+          body.refresh_interval_sec = parseInt(intervalEl.value, 10) || 600;
+        }
         const r = await fetch('/api/config', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            session_token: document.getElementById('token').value.trim(),
-            glm_api_key: document.getElementById('glmKey').value.trim(),
-            minimax_api_key: document.getElementById('minimaxKey').value.trim(),
-            kimi_api_key: document.getElementById('kimiKey').value.trim(),
-            timezone: document.getElementById('tz').value,
-            refresh_interval_sec: parseInt(document.getElementById('interval').value, 10) || 600,
-          }),
+          body: JSON.stringify(body),
         });
         const d = await r.json();
         if (!r.ok) throw new Error(d.error || '保存失败');
