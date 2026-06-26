@@ -12,8 +12,8 @@ import (
 func TestFormatPlanLineCursor(t *testing.T) {
 	now := time.Date(2026, 6, 21, 12, 0, 0, 0, time.Local)
 	reset := time.Date(2026, 6, 30, 0, 0, 0, 0, time.Local)
-	got := FormatPlanLine(provider.CursorID, "Pro", "", reset, 9, nil, now)
-	if got != "套餐 Pro · 重置 6月30日 (9天)" {
+	got := FormatPlanLine(provider.CursorID, "Pro", "", reset, nil, now)
+	if got != "套餐 Pro · 重置 6月30日 00:00" {
 		t.Fatalf("unexpected: %q", got)
 	}
 }
@@ -21,7 +21,7 @@ func TestFormatPlanLineCursor(t *testing.T) {
 func TestFormatPlanLineMiniMax(t *testing.T) {
 	now := time.Date(2026, 6, 21, 12, 0, 0, 0, time.Local)
 	reset := time.Date(2026, 6, 21, 18, 30, 0, 0, time.Local)
-	got := FormatPlanLine(provider.MiniMaxID, "Token Plan", "interval", reset, 0, nil, now)
+	got := FormatPlanLine(provider.MiniMaxID, "Token Plan", "interval", reset, nil, now)
 	if got != "套餐 Token Plan · 时段重置 18:30" {
 		t.Fatalf("unexpected: %q", got)
 	}
@@ -30,7 +30,7 @@ func TestFormatPlanLineMiniMax(t *testing.T) {
 func TestFormatPlanLineMiniMaxWeekly(t *testing.T) {
 	now := time.Date(2026, 6, 21, 12, 0, 0, 0, time.Local)
 	reset := time.Date(2026, 6, 28, 0, 0, 0, 0, time.Local)
-	got := FormatPlanLine(provider.MiniMaxID, "Token Plan", "weekly", reset, 6, nil, now)
+	got := FormatPlanLine(provider.MiniMaxID, "Token Plan", "weekly", reset, nil, now)
 	if got != "套餐 Token Plan · 周重置 6月28日 00:00" {
 		t.Fatalf("unexpected: %q", got)
 	}
@@ -42,8 +42,8 @@ func TestFormatPlanLineKimi(t *testing.T) {
 		{Label: provider.LabelIntervalQuota, ResetAt: now.Add(22 * time.Minute)},
 		{Label: provider.LabelWeeklyQuota, ResetAt: now.Add(17 * time.Hour)},
 	}
-	got := FormatPlanLine(provider.KimiID, "Moderato", "LEVEL_INTERMEDIATE", time.Time{}, 0, bars, now)
-	if got != "套餐 Moderato · 时段重置 22分钟后 · 周重置 17小时后" {
+	got := FormatPlanLine(provider.KimiID, "Moderato", "LEVEL_INTERMEDIATE", time.Time{}, bars, now)
+	if got != "套餐 Moderato · 时段重置 12:22 · 周重置 6月22日 05:00" {
 		t.Fatalf("unexpected: %q", got)
 	}
 }
@@ -80,7 +80,6 @@ func TestDrawProviderBlockCompactHeight(t *testing.T) {
 	if hidden != 0 {
 		t.Fatalf("unexpected hidden bars: %d", hidden)
 	}
-	// Kindle UI 标题区约 150px，3 条紧凑配额条约 80px
 	if used > 260 {
 		t.Fatalf("provider block too tall: %d", used)
 	}

@@ -7,7 +7,7 @@ import (
 	"github.com/godbobo/kiage/internal/provider"
 )
 
-func FormatPlanLine(providerID, plan, membershipType string, resetAt time.Time, resetDaysLeft int, bars []provider.QuotaBar, now time.Time) string {
+func FormatPlanLine(providerID, plan, membershipType string, resetAt time.Time, bars []provider.QuotaBar, now time.Time) string {
 	if plan == "" {
 		plan = "—"
 	}
@@ -17,11 +17,11 @@ func FormatPlanLine(providerID, plan, membershipType string, resetAt time.Time, 
 			switch bar.Label {
 			case provider.LabelIntervalQuota:
 				if !bar.ResetAt.IsZero() {
-					parts = append(parts, "时段重置 "+formatPlanResetRelative(bar.ResetAt, now))
+					parts = append(parts, "时段重置 "+formatResetAbsolute(bar.ResetAt, now))
 				}
 			case provider.LabelWeeklyQuota:
 				if !bar.ResetAt.IsZero() {
-					parts = append(parts, "周重置 "+formatPlanResetRelative(bar.ResetAt, now))
+					parts = append(parts, "周重置 "+formatResetAbsolute(bar.ResetAt, now))
 				}
 			}
 		}
@@ -43,11 +43,9 @@ func FormatPlanLine(providerID, plan, membershipType string, resetAt time.Time, 
 				resetLabel = "周重置"
 			}
 		default:
-			reset = resetAt.Format("1月2日") + " (" + itoa(resetDaysLeft) + "天)"
+			resetLabel = "重置"
 		}
-		if providerID == provider.GLMID || providerID == provider.MiniMaxID {
-			reset = formatQuotaReset(resetAt, now)
-		}
+		reset = formatResetAbsolute(resetAt, now)
 	}
 	return "套餐 " + plan + " · " + resetLabel + " " + reset
 }

@@ -29,7 +29,7 @@ func drawTopSection(img *image.RGBA, dash aggregate.Dashboard, view ViewState, x
 
 	plan := dash.PlanName
 	bars := BarsForProvider(view.ProviderID, dash, true)
-	cy = drawText(img, x, cy+8, FormatPlanLine(view.ProviderID, plan, dash.MembershipType, dash.ResetAt, dash.ResetDaysLeft, bars, time.Now()), PlanFontSize(), true)
+	cy = drawText(img, x, cy+8, FormatPlanLine(view.ProviderID, plan, dash.MembershipType, dash.ResetAt, bars, time.Now()), PlanFontSize(), true)
 
 	cy += 8
 	for _, bar := range bars {
