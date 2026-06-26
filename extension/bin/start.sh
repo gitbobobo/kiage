@@ -43,6 +43,15 @@ log_line() {
 	echo "$1" >>"$LOG"
 }
 
+# 可选：etc/rtc_sec 写入一个秒数即可覆盖 RTC 周期唤醒间隔（用于快速验证休眠联网；
+# 删除该文件恢复默认 3600）。
+if [ -f "$ROOT/etc/rtc_sec" ]; then
+	RTC_SEC="$(tr -dc '0-9' <"$ROOT/etc/rtc_sec")"
+	if [ -n "$RTC_SEC" ]; then
+		export KIAGE_RTC_SEC="$RTC_SEC"
+	fi
+fi
+
 if pgrep -f "$ROOT/bin/kiage run" >/dev/null 2>&1; then
 	log_line "$(date '+%F %T') [start.sh] already running, skip"
 	exit 0
@@ -56,7 +65,9 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-lipc-set-prop com.lab126.powerd preventScreenSaver 1 2>/dev/null
+if [ "${KIAGE_KEEP_AWAKE:-}" = "1" ]; then
+	lipc-set-prop com.lab126.powerd preventScreenSaver 1 2>/dev/null
+fi
 
 log_line "=== kiage start $(date) ==="
 log_line "ROOT=$ROOT"

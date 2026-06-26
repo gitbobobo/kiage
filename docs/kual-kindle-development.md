@@ -131,8 +131,7 @@ KUAL 只负责启动，实际程序可选以下路径。
 #!/bin/sh
 # bin/start.sh
 
-# 禁止屏保
-lipc-set-prop com.lab126.powerd preventScreenSaver 1
+# kiage 默认允许系统休眠；调试时可设 KIAGE_KEEP_AWAKE=1 禁止屏保
 
 # 在屏幕显示文字（老接口）
 eips 1 1 "Hello from my app"
@@ -269,7 +268,7 @@ read -n 1
 2. **JSON 语法**：KUAL 2.x 对非法 JSON 零容忍
 3. **权限**：脚本必须 `chmod +x`
 4. **长驻进程**：设 `exitmenu: false`，并提供停止入口
-5. **屏保**：长任务需 `lipc-set-prop com.lab126.powerd preventScreenSaver 1`
+5. **省电**：kiage 看板允许 10 分钟无操作后休眠，e-ink 保留最后一帧；唤醒或每小时 rtc 定时同步。勿长期 `preventScreenSaver 1`（极耗电）；调试可设 `KIAGE_KEEP_AWAKE=1`
 6. **固件差异**：新机型用 Booklet 版 KUAL，交叉编译选对 `kindlehf` / `kindlepw2`
 7. **禁用扩展**：将 `config.xml` 重命名为 `config-skip.xml` 即可
 
