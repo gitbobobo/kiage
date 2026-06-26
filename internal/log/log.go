@@ -36,8 +36,23 @@ func Init(path string) error {
 		_ = file.Close()
 	}
 	file = f
-	out = io.MultiWriter(os.Stderr, f)
+	// start.sh 以 `>>LOG 2>&1` 将进程 stderr 重定向到同一日志文件，若再
+	// MultiWriter 到 os.Stderr 会导致每行写两遍。仅当 stderr 是终端（dev 直跑）
+	// 时才镜像到 stderr；被重定向到文件时只写文件，避免重复。
+	if stderrIsTerminal() {
+		out = io.MultiWriter(os.Stderr, f)
+	} else {
+		out = f
+	}
 	return nil
+}
+
+func stderrIsTerminal() bool {
+	fi, err := os.Stderr.Stat()
+	if err != nil {
+		return false
+	}
+	return fi.Mode()&os.ModeCharDevice != 0
 }
 
 func Close() error {
